@@ -123,7 +123,7 @@ python code/scripts/train_experiment.py \
   --epochs 120
 ```
 
-All outputs are written under `data/outputs/<experiment_name>/`.
+All outputs are written under `data/outputs/<experiment_name>_<epochs>/`.
 
 For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesTr/`, `labelsTr/`, and optionally `dataset.json`. The included configs already default to:
 
@@ -139,7 +139,7 @@ For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesT
 
 If you want to use the older subject-folder layout instead, change `dataset_format` to `"subject_dirs"`.
 
-Each run now trains one model per fold under `data/outputs/<experiment_name>/fold_01/` through `fold_05/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<experiment_name>/summary.json` stores the aggregated cross-validation metrics.
+Each run now trains one model per fold under `data/outputs/<experiment_name>_<epochs>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` is written to `data/outputs/exp_a_unet_e5_25/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<experiment_name>_<epochs>/summary.json` stores the aggregated cross-validation metrics.
 
 All bundled experiments now use the same shared 5-fold split file by default:
 
@@ -245,7 +245,7 @@ tail -f logs/UNet_CV_fold0_<jobid>.out
 ### 5. Find outputs
 
 ```bash
-data/outputs/<experiment_name>/
+data/outputs/<experiment_name>_<epochs>/
 ```
 
 If you use `OUTPUT_ROOT_OVERRIDE`, outputs go there instead.

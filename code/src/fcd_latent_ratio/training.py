@@ -517,6 +517,8 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         data_root = repo_root / data_root
     dataset_format = config.get("dataset_format", "subject_dirs")
     experiment_name = config["experiment_name"]
+    epochs = int(config.get("epochs", 80))
+    run_name = f"{experiment_name}_{epochs}"
     output_root = Path(config.get("output_root", "data/outputs"))
     if not output_root.is_absolute():
         output_root = repo_root / output_root
@@ -524,7 +526,7 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
     split_file_path = Path(split_file) if split_file is not None else None
     if split_file_path is not None and not split_file_path.is_absolute():
         split_file_path = repo_root / split_file_path
-    output_dir = output_root / experiment_name
+    output_dir = output_root / run_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     subjects = build_subject_index(
@@ -587,6 +589,7 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
     best_val_dice_rows = [{"best_val_dice": value} for value in [fold["best_val_dice"] for fold in fold_summaries] if value is not None]
     summary = {
         "experiment_name": experiment_name,
+        "run_name": run_name,
         "model_name": config["model"]["name"],
         "cross_validation": True,
         "num_folds": num_folds,
