@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
 import torch
+from scipy import ndimage
 
 
 def dice_score_from_logits(logits: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
@@ -41,3 +43,55 @@ def recall_score_from_logits(logits: torch.Tensor, target: torch.Tensor, thresho
     true_positive = (pred * target).sum(dim=dims)
     target_positive = target.sum(dim=dims)
     return ((true_positive + 1e-6) / (target_positive + 1e-6)).mean()
+
+
+def sensitivity_score_from_logits(logits: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+    return recall_score_from_logits(logits, target, threshold=threshold)
+
+
+def specificity_score_from_logits(logits: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+    probs = torch.sigmoid(logits)
+    pred = (probs >= threshold).float()
+    target = (target > 0.5).float()
+    dims = tuple(range(1, pred.ndim))
+    true_negative = ((1.0 - pred) * (1.0 - target)).sum(dim=dims)
+    target_negative = (1.0 - target).sum(dim=dims)
+    return ((true_negative + 1e-6) / (target_negative + 1e-6)).mean()
+
+
+def _surface_distances(mask_a: np.ndarray, mask_b: np.ndarray) -> np.ndarray:
+    mask_a = mask_a.astype(bool)
+    mask_b = mask_b.astype(bool)
+
+    if not mask_a.any() and not mask_b.any():
+        return np.zeros(1, dtype=np.float32)
+    if not mask_a.any() or not mask_b.any():
+        return np.array([np.inf], dtype=np.float32)
+
+    structure = ndimage.generate_binary_structure(mask_a.ndim, 1)
+    surface_a = np.logical_xor(mask_a, ndimage.binary_erosion(mask_a, structure=structure, border_value=0))
+    surface_b = np.logical_xor(mask_b, ndimage.binary_erosion(mask_b, structure=structure, border_value=0))
+
+    distances_to_b = ndimage.distance_transform_edt(~surface_b)
+    distances_to_a = ndimage.distance_transform_edt(~surface_a)
+
+    return np.concatenate(
+        [
+            distances_to_b[surface_a],
+            distances_to_a[surface_b],
+        ]
+    ).astype(np.float32)
+
+
+def hd95_score_from_logits(logits: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+    probs = torch.sigmoid(logits)
+    pred = (probs >= threshold).detach().cpu().numpy().astype(np.uint8)
+    target_np = (target > 0.5).detach().cpu().numpy().astype(np.uint8)
+
+    values: list[float] = []
+    for pred_sample, target_sample in zip(pred, target_np):
+        pred_mask = np.squeeze(pred_sample, axis=0)
+        target_mask = np.squeeze(target_sample, axis=0)
+        distances = _surface_distances(pred_mask, target_mask)
+        values.append(float(np.percentile(distances, 95)))
+    return torch.tensor(float(np.mean(values)), dtype=torch.float32)

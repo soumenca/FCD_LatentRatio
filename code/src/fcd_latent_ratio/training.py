@@ -16,7 +16,15 @@ from .data import (
     split_subjects,
 )
 from .losses import DiceBCELoss
-from .metrics import dice_score_from_logits, iou_score_from_logits, precision_score_from_logits, recall_score_from_logits
+from .metrics import (
+    dice_score_from_logits,
+    hd95_score_from_logits,
+    iou_score_from_logits,
+    precision_score_from_logits,
+    recall_score_from_logits,
+    sensitivity_score_from_logits,
+    specificity_score_from_logits,
+)
 from .models import build_model
 
 
@@ -78,9 +86,12 @@ def evaluate(
     model.eval()
     total_loss = 0.0
     total_dice = 0.0
+    total_hd95 = 0.0
     total_iou = 0.0
     total_precision = 0.0
     total_recall = 0.0
+    total_sensitivity = 0.0
+    total_specificity = 0.0
     steps = 0
     for batch in loader:
         image = batch["image"].to(device=device, dtype=torch.float32)
@@ -89,17 +100,23 @@ def evaluate(
         loss = criterion(logits, label)
         total_loss += float(loss.item())
         total_dice += float(dice_score_from_logits(logits, label).item())
+        total_hd95 += float(hd95_score_from_logits(logits, label).item())
         total_iou += float(iou_score_from_logits(logits, label).item())
         total_precision += float(precision_score_from_logits(logits, label).item())
         total_recall += float(recall_score_from_logits(logits, label).item())
+        total_sensitivity += float(sensitivity_score_from_logits(logits, label).item())
+        total_specificity += float(specificity_score_from_logits(logits, label).item())
         steps += 1
     n = max(1, steps)
     return {
         "loss": total_loss / n,
         "dice": total_dice / n,
+        "hd95": total_hd95 / n,
         "iou": total_iou / n,
         "precision": total_precision / n,
         "recall": total_recall / n,
+        "sensitivity": total_sensitivity / n,
+        "specificity": total_specificity / n,
     }
 
 

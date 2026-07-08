@@ -123,6 +123,8 @@ If you want to use the older subject-folder layout instead, change `dataset_form
 
 Each run now trains one model per fold under `data/outputs/<experiment_name>/fold_01/` through `fold_05/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, and `summary.json`, while the top-level `data/outputs/<experiment_name>/summary.json` stores the aggregated cross-validation metrics.
 
+Reported segmentation metrics now include Dice, HD95, IoU, precision, recall, sensitivity, and specificity.
+
 Project layout now keeps executable code under `code/` and reserves `data/` for datasets.
 
 ## HPC Usage
