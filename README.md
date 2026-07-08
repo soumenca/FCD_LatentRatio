@@ -149,7 +149,30 @@ Project layout now keeps executable code under `code/` and reserves `data/` for 
 
 Use [code/scripts/slurm_train.sh](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/scripts/slurm_train.sh) on M3.
 
-### 1. Setup once
+### 1. Clone on M3
+
+Clone the repo:
+
+```bash
+cd /path/where/you/want/the/repo
+git clone https://github.com/soumenca/FCD_LatentRatio.git
+cd FCD_LatentRatio
+```
+
+If the repo is already there and you just want the latest updates:
+
+```bash
+cd /path/to/FCD_LatentRatio
+git pull
+```
+
+If M3 requires SSH instead of HTTPS:
+
+```bash
+git clone git@github.com:soumenca/FCD_LatentRatio.git
+```
+
+### 2. Setup once
 
 ```bash
 cd /path/to/FCD_LatentRatio
@@ -158,7 +181,7 @@ module load cuda/12.1
 bash code/scripts/setup_env.sh
 ```
 
-### 2. Submit a job
+### 3. Submit a job
 
 `exp_a` with `T1w + FLAIR`:
 
@@ -205,13 +228,13 @@ sbatch code/scripts/slurm_train.sh \
   --epochs 120
 ```
 
-### 3. Check logs
+### 4. Check logs
 
 ```bash
 tail -f logs/UNet_CV_fold0_<jobid>.out
 ```
 
-### 4. Find outputs
+### 5. Find outputs
 
 ```bash
 data/outputs/<experiment_name>/
