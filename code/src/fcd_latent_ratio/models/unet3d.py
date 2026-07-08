@@ -111,6 +111,7 @@ class LightweightBottleneckAttention3D(nn.Module):
         self.norm1 = nn.LayerNorm(embed_dim)
         self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         self.norm2 = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(0.1)
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),
             nn.GELU(),
@@ -127,9 +128,10 @@ class LightweightBottleneckAttention3D(nn.Module):
         pooled = self.pool(features)
         batch_size, channels, depth, height, width = pooled.shape
         tokens = pooled.flatten(2).transpose(1, 2)
-        attended_tokens, _ = self.attention(self.norm1(tokens), self.norm1(tokens), self.norm1(tokens))
-        tokens = tokens + attended_tokens
-        tokens = tokens + self.mlp(self.norm2(tokens))
+        qkv = self.norm1(tokens)
+        attended_tokens, _ = self.attention(qkv, qkv, qkv)
+        tokens = tokens + self.dropout(attended_tokens)
+        tokens = tokens + self.dropout(self.mlp(self.norm2(tokens)))
         pooled = tokens.transpose(1, 2).reshape(batch_size, channels, depth, height, width)
         pooled = nn.functional.interpolate(pooled, size=x.shape[2:], mode="trilinear", align_corners=False)
         update = self.project_out(pooled)
@@ -198,7 +200,7 @@ class CRILUNet3D(nn.Module):
         return self.unet(latent)
 
 
-class CRILAttentionUNet3D(nn.Module):
+class CRILAttnUNet3D(nn.Module):
     def __init__(
         self,
         in_channels: int = 2,

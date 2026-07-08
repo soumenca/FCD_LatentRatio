@@ -5,7 +5,7 @@ This repository contains a minimal experiment scaffold for the 2-week ablation w
 - `U-Net-E5`: plain 3D U-Net with `T1w + FLAIR`
 - `CRIL-U-Net`: 3D U-Net with a Compact Ratio-Interaction Learning module
 - `U-Net + ratios`: plain 3D U-Net with manual ratio-style input channels
-- `CRIL-Attention-U-Net`: CRIL with a lightweight pooled-attention block before the 3D U-Net
+- `CRIL-Attn-U-Net`: CRIL with a lightweight pooled-attention block before the 3D U-Net
 
 ## Core idea
 
@@ -91,7 +91,7 @@ If `subject_manifest.json` is missing, the loader infers metadata from the folde
 - [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
 - [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
 - [code/configs/exp_c_unet_with_ratios.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_c_unet_with_ratios.json): manual bidirectional-ratio benchmark
-- [code/configs/exp_d_cril_attention_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_cril_attention_unet.json): CRIL + lightweight pooled-attention + 3D U-Net
+- [code/configs/exp_d_cril_attn_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_cril_attn_unet.json): CRIL-Attn-U-Net, compact ratio-interaction learning with bottleneck attention
 
 ## Quick start
 
@@ -107,7 +107,7 @@ Then run:
 python code/scripts/train_experiment.py --config code/configs/exp_a_unet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_b_cril_unet.json
 python code/scripts/train_experiment.py --config code/configs/exp_c_unet_with_ratios.json
-python code/scripts/train_experiment.py --config code/configs/exp_d_cril_attention_unet.json
+python code/scripts/train_experiment.py --config code/configs/exp_d_cril_attn_unet.json
 ```
 
 You can override dataset and output locations at launch time:
