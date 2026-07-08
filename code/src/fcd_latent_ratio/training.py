@@ -5,6 +5,7 @@ import random
 from statistics import mean, pstdev
 from pathlib import Path
 
+import matplotlib
 import nibabel as nib
 import numpy as np
 import torch
@@ -32,6 +33,9 @@ from .metrics import (
     specificity_score_from_logits,
 )
 from .models import build_model
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
 def _subject_map_by_id(subjects: list[SubjectSample]) -> dict[str, SubjectSample]:
@@ -219,6 +223,41 @@ def _aggregate_metric_dicts(rows: list[dict[str, float]]) -> dict[str, dict[str,
             "std": pstdev(values) if len(values) > 1 else 0.0,
         }
     return aggregated
+
+
+def _plot_training_history(history: list[dict[str, float]], output_path: Path) -> None:
+    if not history:
+        return
+
+    epochs = [int(row["epoch"]) for row in history]
+    train_loss = [float(row["train_loss"]) for row in history if "train_loss" in row]
+    val_loss = [float(row["val_loss"]) for row in history if "val_loss" in row]
+    val_dice = [float(row["val_dice"]) for row in history if "val_dice" in row]
+
+    figure, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+
+    axes[0].plot(epochs[: len(train_loss)], train_loss, label="train loss", color="#1f77b4", linewidth=2)
+    if val_loss:
+        axes[0].plot(epochs[: len(val_loss)], val_loss, label="val loss", color="#ff7f0e", linewidth=2)
+    axes[0].set_title("Loss")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    if val_dice:
+        axes[1].plot(epochs[: len(val_dice)], val_dice, label="val dice", color="#2ca02c", linewidth=2)
+    axes[1].set_title("Validation Dice")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Dice")
+    axes[1].set_ylim(0.0, 1.0)
+    axes[1].grid(True, alpha=0.3)
+    if val_dice:
+        axes[1].legend()
+
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
 
 
 def _compute_sliding_window_starts(size: int, window: int) -> list[int]:
@@ -447,10 +486,12 @@ def _run_fold(
         "best_val_dice": best_val_dice if best_val_dice >= 0 else None,
         "validation_predictions_dir": str(fold_dir / "validation"),
         "num_validation_predictions": len(exported_fold_masks),
+        "training_plot_path": str(fold_dir / "training_curve.png"),
         "test_metrics": test_metrics,
     }
 
     (fold_dir / "history.json").write_text(json.dumps(history, indent=2) + "\n")
+    _plot_training_history(history, fold_dir / "training_curve.png")
     (fold_dir / "summary.json").write_text(json.dumps(fold_summary, indent=2) + "\n")
     (fold_dir / "split.json").write_text(
         json.dumps(

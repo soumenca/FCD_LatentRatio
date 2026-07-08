@@ -2,3 +2,4 @@ torch
 numpy
 nibabel
 scipy
+matplotlib
