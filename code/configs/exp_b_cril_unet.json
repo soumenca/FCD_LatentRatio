@@ -1,6 +1,7 @@
 {
   "experiment_name": "exp_b_cril_unet",
   "data_root": "data",
+  "split_file": "data/splits/shared_5fold_split.json",
   "dataset_format": "nnunetv2",
   "include_controls": true,
   "t1_channel_index": 0,

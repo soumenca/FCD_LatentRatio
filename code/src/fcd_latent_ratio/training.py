@@ -5,15 +5,21 @@ import random
 from statistics import mean, pstdev
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from .data import (
     Patch3DSegmentationDataset,
     SubjectSample,
+    build_input_channels,
     build_cross_validation_folds,
     build_subject_index,
+    load_subject_arrays,
+    pad_if_needed,
     split_subjects,
+    zscore_inside_mask,
 )
 from .losses import DiceBCELoss
 from .metrics import (
@@ -26,6 +32,84 @@ from .metrics import (
     specificity_score_from_logits,
 )
 from .models import build_model
+
+
+def _subject_map_by_id(subjects: list[SubjectSample]) -> dict[str, SubjectSample]:
+    subject_map: dict[str, SubjectSample] = {}
+    for subject in subjects:
+        if subject.subject_id in subject_map:
+            raise ValueError(f"Duplicate subject_id found: {subject.subject_id}")
+        subject_map[subject.subject_id] = subject
+    return subject_map
+
+
+def _plan_from_subjects(
+    subjects: list[SubjectSample],
+    num_folds: int,
+    val_ratio: float,
+    seed: int,
+) -> dict:
+    folds = build_cross_validation_folds(subjects, num_folds=num_folds, seed=seed)
+    remaining_fraction = 1.0 - (1.0 / num_folds)
+    adjusted_val_ratio = val_ratio / remaining_fraction if remaining_fraction > 0 else val_ratio
+    adjusted_val_ratio = min(max(adjusted_val_ratio, 0.0), 0.5)
+    adjusted_train_ratio = 1.0 - adjusted_val_ratio
+
+    fold_plans: list[dict] = []
+    for fold_index, test_subjects in enumerate(folds):
+        dev_subjects = [subject for idx, fold in enumerate(folds) if idx != fold_index for subject in fold]
+        train_subjects, val_subjects, _ = split_subjects(
+            dev_subjects,
+            train_ratio=adjusted_train_ratio,
+            val_ratio=adjusted_val_ratio,
+            seed=seed + fold_index,
+        )
+        fold_plans.append(
+            {
+                "fold_index": fold_index,
+                "train_subject_ids": [subject.subject_id for subject in train_subjects],
+                "val_subject_ids": [subject.subject_id for subject in val_subjects],
+                "test_subject_ids": [subject.subject_id for subject in test_subjects],
+            }
+        )
+
+    return {
+        "num_folds": num_folds,
+        "val_ratio": val_ratio,
+        "seed": seed,
+        "folds": fold_plans,
+    }
+
+
+def _load_or_create_split_plan(
+    subjects: list[SubjectSample],
+    split_file: Path | None,
+    num_folds: int,
+    val_ratio: float,
+    seed: int,
+) -> dict:
+    if split_file is None:
+        return _plan_from_subjects(subjects, num_folds=num_folds, val_ratio=val_ratio, seed=seed)
+
+    if split_file.exists():
+        plan = json.loads(split_file.read_text())
+    else:
+        plan = _plan_from_subjects(subjects, num_folds=num_folds, val_ratio=val_ratio, seed=seed)
+        split_file.parent.mkdir(parents=True, exist_ok=True)
+        split_file.write_text(json.dumps(plan, indent=2) + "\n")
+
+    if int(plan.get("num_folds", -1)) != num_folds:
+        raise SystemExit(f"Split file {split_file} has num_folds={plan.get('num_folds')} but config requests {num_folds}")
+
+    available_subject_ids = set(_subject_map_by_id(subjects))
+    for fold_plan in plan.get("folds", []):
+        for key in ("train_subject_ids", "val_subject_ids", "test_subject_ids"):
+            missing = [subject_id for subject_id in fold_plan.get(key, []) if subject_id not in available_subject_ids]
+            if missing:
+                raise SystemExit(
+                    f"Split file {split_file} references subject_ids not present in current dataset for {key}: {missing[:5]}"
+                )
+    return plan
 
 
 def seed_everything(seed: int) -> None:
@@ -137,6 +221,129 @@ def _aggregate_metric_dicts(rows: list[dict[str, float]]) -> dict[str, dict[str,
     return aggregated
 
 
+def _compute_sliding_window_starts(size: int, window: int) -> list[int]:
+    if size <= window:
+        return [0]
+
+    stride = max(1, window // 2)
+    starts = list(range(0, size - window + 1, stride))
+    last_start = size - window
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    return starts
+
+
+@torch.no_grad()
+def _predict_subject_mask(
+    model: torch.nn.Module,
+    subject: SubjectSample,
+    input_mode: str,
+    patch_size: tuple[int, int, int],
+    device: torch.device,
+    threshold: float = 0.5,
+) -> np.ndarray:
+    arrays = load_subject_arrays(subject)
+    t1 = zscore_inside_mask(arrays["t1"], arrays["brain_mask"])
+    flair = zscore_inside_mask(arrays["flair"], arrays["brain_mask"])
+    t1_flair_ratio = arrays["t1_flair_ratio"]
+    flair_t1_ratio = arrays["flair_t1_ratio"]
+
+    original_shape = t1.shape
+    target_shape = tuple(max(size, patch) for size, patch in zip(original_shape, patch_size))
+    t1 = pad_if_needed(t1, target_shape)
+    flair = pad_if_needed(flair, target_shape)
+    if t1_flair_ratio is not None:
+        t1_flair_ratio = pad_if_needed(t1_flair_ratio.astype(np.float32), target_shape)
+    if flair_t1_ratio is not None:
+        flair_t1_ratio = pad_if_needed(flair_t1_ratio.astype(np.float32), target_shape)
+
+    image = build_input_channels(
+        t1,
+        flair,
+        input_mode=input_mode,
+        t1_flair_ratio=t1_flair_ratio,
+        flair_t1_ratio=flair_t1_ratio,
+    )
+    image_tensor = torch.from_numpy(image[None, ...]).to(device=device, dtype=torch.float32)
+
+    logits_sum = torch.zeros((1, 1, *target_shape), device=device, dtype=torch.float32)
+    logits_count = torch.zeros_like(logits_sum)
+    z_starts = _compute_sliding_window_starts(target_shape[0], patch_size[0])
+    y_starts = _compute_sliding_window_starts(target_shape[1], patch_size[1])
+    x_starts = _compute_sliding_window_starts(target_shape[2], patch_size[2])
+
+    model.eval()
+    for z in z_starts:
+        for y in y_starts:
+            for x in x_starts:
+                patch = image_tensor[
+                    :,
+                    :,
+                    z:z + patch_size[0],
+                    y:y + patch_size[1],
+                    x:x + patch_size[2],
+                ]
+                patch_logits = model(patch)
+                logits_sum[
+                    :,
+                    :,
+                    z:z + patch_size[0],
+                    y:y + patch_size[1],
+                    x:x + patch_size[2],
+                ] += patch_logits
+                logits_count[
+                    :,
+                    :,
+                    z:z + patch_size[0],
+                    y:y + patch_size[1],
+                    x:x + patch_size[2],
+                ] += 1.0
+
+    mean_logits = logits_sum / torch.clamp(logits_count, min=1.0)
+    probabilities = torch.sigmoid(mean_logits)[0, 0].detach().cpu().numpy()
+    prediction = (probabilities >= threshold).astype(np.uint8)
+    return prediction[: original_shape[0], : original_shape[1], : original_shape[2]]
+
+
+def _export_validation_masks(
+    model: torch.nn.Module,
+    subjects: list[SubjectSample],
+    fold_dir: Path,
+    input_mode: str,
+    patch_size: tuple[int, int, int],
+    device: torch.device,
+) -> list[dict[str, str]]:
+    validation_dir = fold_dir / "validation"
+    validation_dir.mkdir(parents=True, exist_ok=True)
+
+    exported: list[dict[str, str]] = []
+    for subject in subjects:
+        prediction = _predict_subject_mask(
+            model=model,
+            subject=subject,
+            input_mode=input_mode,
+            patch_size=patch_size,
+            device=device,
+        )
+        reference_path = subject.label_path if subject.label_path and subject.label_path.exists() else subject.t1_path
+        if reference_path is None:
+            raise FileNotFoundError(f"No reference image found for subject '{subject.subject_id}'")
+        reference_image = nib.load(str(reference_path))
+        prediction_image = nib.Nifti1Image(prediction.astype(np.uint8), affine=reference_image.affine, header=reference_image.header.copy())
+        prediction_image.set_data_dtype(np.uint8)
+        prediction_path = validation_dir / f"{subject.subject_id}_pred.nii.gz"
+        nib.save(prediction_image, str(prediction_path))
+        exported.append(
+            {
+                "subject_id": subject.subject_id,
+                "prediction_path": str(prediction_path),
+            }
+        )
+
+    (validation_dir / "manifest.json").write_text(json.dumps(exported, indent=2) + "\n")
+    return exported
+
+
 def _run_fold(
     fold_index: int,
     total_folds: int,
@@ -222,6 +429,14 @@ def _run_fold(
     model.load_state_dict(checkpoint["model_state_dict"])
 
     test_metrics = evaluate(model, test_loader, criterion, device) if test_subjects else {}
+    exported_validation_masks = _export_validation_masks(
+        model=model,
+        subjects=val_subjects,
+        fold_dir=fold_dir,
+        input_mode=input_mode,
+        patch_size=patch_size,
+        device=device,
+    )
     fold_summary = {
         "fold_index": fold_index + 1,
         "num_folds": total_folds,
@@ -230,6 +445,8 @@ def _run_fold(
         "num_val_subjects": len(val_subjects),
         "num_test_subjects": len(test_subjects),
         "best_val_dice": best_val_dice if best_val_dice >= 0 else None,
+        "validation_predictions_dir": str(fold_dir / "validation"),
+        "num_validation_predictions": len(exported_validation_masks),
         "test_metrics": test_metrics,
     }
 
@@ -262,6 +479,10 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
     output_root = Path(config.get("output_root", "data/outputs"))
     if not output_root.is_absolute():
         output_root = repo_root / output_root
+    split_file = config.get("split_file")
+    split_file_path = Path(split_file) if split_file is not None else None
+    if split_file_path is not None and not split_file_path.is_absolute():
+        split_file_path = repo_root / split_file_path
     output_dir = output_root / experiment_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -287,32 +508,28 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
     num_folds = int(config.get("num_folds", 5))
     val_ratio = float(config.get("val_ratio", 0.15))
     selected_fold_index = config.get("fold_index")
-    folds = build_cross_validation_folds(
+    seed = int(config.get("seed", 42))
+    split_plan = _load_or_create_split_plan(
         subjects,
+        split_file=split_file_path,
         num_folds=num_folds,
-        seed=int(config.get("seed", 42)),
+        val_ratio=val_ratio,
+        seed=seed,
     )
     if selected_fold_index is not None:
         selected_fold_index = int(selected_fold_index)
         if selected_fold_index < 0 or selected_fold_index >= num_folds:
             raise SystemExit(f"fold_index must be between 0 and {num_folds - 1}, got {selected_fold_index}")
 
+    subject_map = _subject_map_by_id(subjects)
     fold_summaries: list[dict] = []
-    remaining_fraction = 1.0 - (1.0 / num_folds)
-    adjusted_val_ratio = val_ratio / remaining_fraction if remaining_fraction > 0 else val_ratio
-    adjusted_val_ratio = min(max(adjusted_val_ratio, 0.0), 0.5)
-    adjusted_train_ratio = 1.0 - adjusted_val_ratio
-
-    for fold_index, test_subjects in enumerate(folds):
+    for fold_plan in split_plan["folds"]:
+        fold_index = int(fold_plan["fold_index"])
         if selected_fold_index is not None and fold_index != selected_fold_index:
             continue
-        dev_subjects = [subject for idx, fold in enumerate(folds) if idx != fold_index for subject in fold]
-        train_subjects, val_subjects, _ = split_subjects(
-            dev_subjects,
-            train_ratio=adjusted_train_ratio,
-            val_ratio=adjusted_val_ratio,
-            seed=int(config.get("seed", 42)) + fold_index,
-        )
+        train_subjects = [subject_map[subject_id] for subject_id in fold_plan["train_subject_ids"]]
+        val_subjects = [subject_map[subject_id] for subject_id in fold_plan["val_subject_ids"]]
+        test_subjects = [subject_map[subject_id] for subject_id in fold_plan["test_subject_ids"]]
         fold_summaries.append(
             _run_fold(
                 fold_index=fold_index,
@@ -334,6 +551,7 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         "num_folds": num_folds,
         "selected_fold_index": selected_fold_index,
         "dataset_format": dataset_format,
+        "split_file": str(split_file_path) if split_file_path is not None else None,
         "input_mode": config.get("input_mode", "t1_flair"),
         "num_subjects": len(subjects),
         "folds": fold_summaries,
