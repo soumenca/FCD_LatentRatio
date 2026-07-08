@@ -32,10 +32,11 @@ Usage:
   sbatch code/scripts/slurm_train.sh [options]
 
 Options:
-  --exp {a|b|c}         Shortcut for bundled configs:
+  --exp {a|b|c|d}       Shortcut for bundled configs:
                         a -> exp_a_unet_e5.json
                         b -> exp_b_cril_unet.json
                         c -> exp_c_unet_with_ratios.json
+                        d -> exp_d_cril_attention_unet.json
   --config PATH         Explicit config path
   --data-root PATH      Override dataset root
   --output-root PATH    Override output root
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         a) CONFIG_PATH="$REPO_ROOT/code/configs/exp_a_unet_e5.json" ;;
         b) CONFIG_PATH="$REPO_ROOT/code/configs/exp_b_cril_unet.json" ;;
         c) CONFIG_PATH="$REPO_ROOT/code/configs/exp_c_unet_with_ratios.json" ;;
+        d) CONFIG_PATH="$REPO_ROOT/code/configs/exp_d_cril_attention_unet.json" ;;
         *)
           echo "Unknown experiment for --exp: ${2:-<missing>}" >&2
           usage

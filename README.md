@@ -5,6 +5,7 @@ This repository contains a minimal experiment scaffold for the 2-week ablation w
 - `U-Net-E5`: plain 3D U-Net with `T1w + FLAIR`
 - `CRIL-U-Net`: 3D U-Net with a Compact Ratio-Interaction Learning module
 - `U-Net + ratios`: plain 3D U-Net with manual ratio-style input channels
+- `CRIL-Attention-U-Net`: CRIL with a lightweight pooled-attention block before the 3D U-Net
 
 ## Core idea
 
@@ -13,6 +14,7 @@ The proposed model does not emit handcrafted ratio images. Instead, it learns a 
 ```text
 T1w + FLAIR
     -> Compact Ratio-Interaction Learning Module
+    -> lightweight bottleneck attention block
     -> compressed latent representation
     -> 3D U-Net
     -> FCD mask
@@ -89,6 +91,7 @@ If `subject_manifest.json` is missing, the loader infers metadata from the folde
 - [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
 - [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
 - [code/configs/exp_c_unet_with_ratios.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_c_unet_with_ratios.json): manual bidirectional-ratio benchmark
+- [code/configs/exp_d_cril_attention_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_cril_attention_unet.json): CRIL + lightweight pooled-attention + 3D U-Net
 
 ## Quick start
 
@@ -104,6 +107,7 @@ Then run:
 python code/scripts/train_experiment.py --config code/configs/exp_a_unet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_b_cril_unet.json
 python code/scripts/train_experiment.py --config code/configs/exp_c_unet_with_ratios.json
+python code/scripts/train_experiment.py --config code/configs/exp_d_cril_attention_unet.json
 ```
 
 You can override dataset and output locations at launch time:
@@ -147,7 +151,7 @@ All bundled experiments now use the same shared 5-fold split file by default:
 data/splits/shared_5fold_split.json
 ```
 
-The first experiment run will create that file if it does not exist. Later runs of `exp_a`, `exp_b`, and `exp_c` will reuse it so all experiments evaluate on the exact same folds.
+The first experiment run will create that file if it does not exist. Later runs of `exp_a`, `exp_b`, `exp_c`, and `exp_d` will reuse it so all experiments evaluate on the exact same folds.
 
 Reported segmentation metrics now include Dice, HD95, IoU, precision, recall, sensitivity, and specificity.
 
@@ -223,6 +227,17 @@ sbatch code/scripts/slurm_train.sh \
   --modules "python/3.11 cuda/12.1" \
   --exp c \
   --data-root /path/to/Dataset2 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_d` with `T1w + FLAIR`:
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp d \
+  --data-root /path/to/Dataset1 \
   --output-root /path/to/scratch/FCD_LatentRatio_outputs
 ```
 

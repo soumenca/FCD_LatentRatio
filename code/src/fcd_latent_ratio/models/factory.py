@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from .unet3d import CRILUNet3D, UNet3D
+from .unet3d import CRILAttentionUNet3D, CRILUNet3D, UNet3D
 
 
 MODEL_REGISTRY = {
     "unet_e5": UNet3D,
     "cril_unet": CRILUNet3D,
+    "cril_attention_unet": CRILAttentionUNet3D,
 }
 
 

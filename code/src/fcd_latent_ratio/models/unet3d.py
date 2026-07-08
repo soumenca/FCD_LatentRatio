@@ -91,6 +91,51 @@ class CompactRatioInteractionLearningModule(nn.Module):
         return self.fuse(torch.cat([local_features, cross_modal_features, ratio_like_features], dim=1))
 
 
+class LightweightBottleneckAttention3D(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        embed_dim: int = 16,
+        num_heads: int = 4,
+        pooled_size: tuple[int, int, int] | list[int] = (6, 6, 6),
+        mlp_ratio: float = 2.0,
+    ) -> None:
+        super().__init__()
+        if embed_dim % num_heads != 0:
+            raise ValueError("embed_dim must be divisible by num_heads.")
+
+        pooled = tuple(int(value) for value in pooled_size)
+        hidden_dim = max(embed_dim, int(round(embed_dim * mlp_ratio)))
+        self.project_in = nn.Conv3d(in_channels, embed_dim, kernel_size=1, bias=False)
+        self.pool = nn.AdaptiveAvgPool3d(pooled)
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+        self.project_out = nn.Sequential(
+            nn.Conv3d(embed_dim, in_channels, kernel_size=1, bias=False),
+            nn.InstanceNorm3d(in_channels),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = x
+        features = self.project_in(x)
+        pooled = self.pool(features)
+        batch_size, channels, depth, height, width = pooled.shape
+        tokens = pooled.flatten(2).transpose(1, 2)
+        attended_tokens, _ = self.attention(self.norm1(tokens), self.norm1(tokens), self.norm1(tokens))
+        tokens = tokens + attended_tokens
+        tokens = tokens + self.mlp(self.norm2(tokens))
+        pooled = tokens.transpose(1, 2).reshape(batch_size, channels, depth, height, width)
+        pooled = nn.functional.interpolate(pooled, size=x.shape[2:], mode="trilinear", align_corners=False)
+        update = self.project_out(pooled)
+        return residual + update
+
+
 class UNet3D(nn.Module):
     def __init__(
         self,
@@ -151,3 +196,41 @@ class CRILUNet3D(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         latent = self.cril(x)
         return self.unet(latent)
+
+
+class CRILAttentionUNet3D(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 2,
+        out_channels: int = 1,
+        encoder_channels: tuple[int, int, int, int, int] | list[int] = (32, 64, 128, 256, 512),
+        cril_hidden_channels: int = 16,
+        cril_latent_channels: int = 4,
+        attention_embed_dim: int = 16,
+        attention_num_heads: int = 4,
+        attention_pooled_size: tuple[int, int, int] | list[int] = (6, 6, 6),
+        attention_mlp_ratio: float = 2.0,
+    ) -> None:
+        super().__init__()
+        self.cril = CompactRatioInteractionLearningModule(
+            in_channels=in_channels,
+            hidden_channels=cril_hidden_channels,
+            latent_channels=cril_latent_channels,
+        )
+        self.attention = LightweightBottleneckAttention3D(
+            in_channels=cril_latent_channels,
+            embed_dim=attention_embed_dim,
+            num_heads=attention_num_heads,
+            pooled_size=attention_pooled_size,
+            mlp_ratio=attention_mlp_ratio,
+        )
+        self.unet = UNet3D(
+            in_channels=cril_latent_channels,
+            out_channels=out_channels,
+            encoder_channels=encoder_channels,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        latent = self.cril(x)
+        attended_latent = self.attention(latent)
+        return self.unet(attended_latent)
