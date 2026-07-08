@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, help="Optional override for config['data_root'].")
     parser.add_argument("--output-root", type=Path, help="Optional override for config['output_root'].")
     parser.add_argument("--epochs", type=int, help="Optional override for config['epochs'].")
+    parser.add_argument("--fold-index", type=int, help="Optional zero-based CV fold index to run by itself.")
     return parser.parse_args()
 
 
@@ -34,6 +35,8 @@ def main() -> None:
         config["output_root"] = str(args.output_root)
     if args.epochs is not None:
         config["epochs"] = args.epochs
+    if args.fold_index is not None:
+        config["fold_index"] = args.fold_index
     output_dir = fit_experiment(config=config, repo_root=REPO_ROOT)
     print(f"Finished experiment. Outputs written to {output_dir}")
 

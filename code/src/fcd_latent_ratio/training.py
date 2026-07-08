@@ -286,11 +286,16 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         raise SystemExit(f"No subjects found under {data_root}")
     num_folds = int(config.get("num_folds", 5))
     val_ratio = float(config.get("val_ratio", 0.15))
+    selected_fold_index = config.get("fold_index")
     folds = build_cross_validation_folds(
         subjects,
         num_folds=num_folds,
         seed=int(config.get("seed", 42)),
     )
+    if selected_fold_index is not None:
+        selected_fold_index = int(selected_fold_index)
+        if selected_fold_index < 0 or selected_fold_index >= num_folds:
+            raise SystemExit(f"fold_index must be between 0 and {num_folds - 1}, got {selected_fold_index}")
 
     fold_summaries: list[dict] = []
     remaining_fraction = 1.0 - (1.0 / num_folds)
@@ -299,6 +304,8 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
     adjusted_train_ratio = 1.0 - adjusted_val_ratio
 
     for fold_index, test_subjects in enumerate(folds):
+        if selected_fold_index is not None and fold_index != selected_fold_index:
+            continue
         dev_subjects = [subject for idx, fold in enumerate(folds) if idx != fold_index for subject in fold]
         train_subjects, val_subjects, _ = split_subjects(
             dev_subjects,
@@ -325,6 +332,7 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         "model_name": config["model"]["name"],
         "cross_validation": True,
         "num_folds": num_folds,
+        "selected_fold_index": selected_fold_index,
         "dataset_format": dataset_format,
         "input_mode": config.get("input_mode", "t1_flair"),
         "num_subjects": len(subjects),

@@ -147,31 +147,84 @@ Project layout now keeps executable code under `code/` and reserves `data/` for 
 
 ## HPC Usage
 
-For SLURM-based clusters, use [code/scripts/slurm_train.sh](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/scripts/slurm_train.sh) as the batch entrypoint.
+Use [code/scripts/slurm_train.sh](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/scripts/slurm_train.sh) on M3.
 
-Typical flow:
+### 1. Setup once
 
 ```bash
+cd /path/to/FCD_LatentRatio
+module load python/3.11
+module load cuda/12.1
 bash code/scripts/setup_env.sh
-sbatch code/scripts/slurm_train.sh
 ```
 
-Useful overrides:
+### 2. Submit a job
+
+`exp_a` with `T1w + FLAIR`:
 
 ```bash
-MODULES="python/3.11 cuda/12.1" \
-VENV_DIR=/path/to/venv \
-DATA_ROOT_OVERRIDE=/path/to/nnunet_dataset \
-OUTPUT_ROOT_OVERRIDE=/path/to/scratch/outputs \
-CONFIG_PATH=/path/to/config.json \
-sbatch code/scripts/slurm_train.sh
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp a \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
 ```
 
-Notes for full-dataset HPC runs:
+`exp_b` with `T1w + FLAIR`:
 
-- Keep `patch_size` large enough for the 5-level U-Net. Very small patches such as `16x16x16` can collapse the bottleneck to `1x1x1` and fail during training.
-- Prefer writing outputs to node-local or scratch storage when available, then copy final artifacts back to shared storage.
-- Tune `batch_size`, `patch_size`, `num_workers`, memory, and walltime in the SLURM script for your cluster.
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp b \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_c`:
+- with `Dataset1`, ratios are computed internally
+- with `Dataset2`, `_0002` and `_0003` are read directly
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp c \
+  --data-root /path/to/Dataset2 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+You can also pass other parameters from the `sbatch` command line:
+
+```bash
+sbatch code/scripts/slurm_train.sh \
+  --exp a \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs \
+  --epochs 120
+```
+
+### 3. Check logs
+
+```bash
+tail -f logs/UNet_CV_fold0_<jobid>.out
+```
+
+### 4. Find outputs
+
+```bash
+data/outputs/<experiment_name>/
+```
+
+If you use `OUTPUT_ROOT_OVERRIDE`, outputs go there instead.
+
+### Notes
+
+- The SLURM script uses your M3 settings: `gpu`, `1 GPU`, `8 CPUs`, `96G`, `2 days`, array `0-4`
+- Each array task runs one CV fold
+- Supported SLURM script flags: `--exp`, `--config`, `--data-root`, `--output-root`, `--venv-dir`, `--modules`, `--epochs`, `--fold-index`
+- Keep `patch_size` reasonably large; very small patches like `16x16x16` can fail
 
 ## Notes
 

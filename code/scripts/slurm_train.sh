@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=fcd_latent_ratio
-#SBATCH --output=logs/%x-%j.out
-#SBATCH --error=logs/%x-%j.err
-#SBATCH --time=24:00:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --job-name=UNet_CV
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=96G
+#SBATCH --time=2-00:00:00
+#SBATCH --output=./logs/%x_fold%a_%j.out
+#SBATCH --error=./logs/%x_fold%a_%j.err
+#SBATCH --array=0-4
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="${SCRIPT_REPO_ROOT}"
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -d "${SLURM_SUBMIT_DIR}/code" ]]; then
+  REPO_ROOT="${SLURM_SUBMIT_DIR}"
+fi
 LOG_DIR="${LOG_DIR:-$REPO_ROOT/logs}"
 mkdir -p "$LOG_DIR"
 
@@ -17,6 +23,84 @@ CONFIG_PATH="${CONFIG_PATH:-$REPO_ROOT/code/configs/exp_a_unet_e5.json}"
 DATA_ROOT_OVERRIDE="${DATA_ROOT_OVERRIDE:-}"
 OUTPUT_ROOT_OVERRIDE="${OUTPUT_ROOT_OVERRIDE:-$REPO_ROOT/data/outputs}"
 VENV_DIR="${VENV_DIR:-$REPO_ROOT/.venv}"
+FOLD_INDEX_OVERRIDE="${FOLD_INDEX_OVERRIDE:-${SLURM_ARRAY_TASK_ID:-}}"
+EPOCHS_OVERRIDE="${EPOCHS_OVERRIDE:-}"
+
+usage() {
+  cat <<EOF
+Usage:
+  sbatch code/scripts/slurm_train.sh [options]
+
+Options:
+  --exp {a|b|c}         Shortcut for bundled configs:
+                        a -> exp_a_unet_e5.json
+                        b -> exp_b_cril_unet.json
+                        c -> exp_c_unet_with_ratios.json
+  --config PATH         Explicit config path
+  --data-root PATH      Override dataset root
+  --output-root PATH    Override output root
+  --venv-dir PATH       Override virtual environment path
+  --modules "A B C"     Modules to load before running
+  --epochs N            Override epochs
+  --fold-index N        Override fold index; defaults to SLURM_ARRAY_TASK_ID
+  --help                Show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --exp)
+      case "${2:-}" in
+        a) CONFIG_PATH="$REPO_ROOT/code/configs/exp_a_unet_e5.json" ;;
+        b) CONFIG_PATH="$REPO_ROOT/code/configs/exp_b_cril_unet.json" ;;
+        c) CONFIG_PATH="$REPO_ROOT/code/configs/exp_c_unet_with_ratios.json" ;;
+        *)
+          echo "Unknown experiment for --exp: ${2:-<missing>}" >&2
+          usage
+          exit 1
+          ;;
+      esac
+      shift 2
+      ;;
+    --config)
+      CONFIG_PATH="${2:-}"
+      shift 2
+      ;;
+    --data-root)
+      DATA_ROOT_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --output-root)
+      OUTPUT_ROOT_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --venv-dir)
+      VENV_DIR="${2:-}"
+      shift 2
+      ;;
+    --modules)
+      MODULES="${2:-}"
+      shift 2
+      ;;
+    --epochs)
+      EPOCHS_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --fold-index)
+      FOLD_INDEX_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
 # Optional module init for HPC systems that use environment modules.
 if [[ -f /etc/profile.d/modules.sh ]]; then
@@ -53,11 +137,20 @@ CMD=(
 if [[ -n "$DATA_ROOT_OVERRIDE" ]]; then
   CMD+=(--data-root "$DATA_ROOT_OVERRIDE")
 fi
+if [[ -n "$EPOCHS_OVERRIDE" ]]; then
+  CMD+=(--epochs "$EPOCHS_OVERRIDE")
+fi
+if [[ -n "$FOLD_INDEX_OVERRIDE" ]]; then
+  CMD+=(--fold-index "$FOLD_INDEX_OVERRIDE")
+fi
 
 echo "Running on host: $(hostname)"
+echo "Repo root: $REPO_ROOT"
 echo "Config: $CONFIG_PATH"
 echo "Data root override: ${DATA_ROOT_OVERRIDE:-<config default>}"
 echo "Output root: $OUTPUT_ROOT_OVERRIDE"
+echo "Epochs override: ${EPOCHS_OVERRIDE:-<config default>}"
+echo "Fold index override: ${FOLD_INDEX_OVERRIDE:-<all folds>}"
 echo "Command: ${CMD[*]}"
 
 "${CMD[@]}"
