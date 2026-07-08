@@ -139,7 +139,7 @@ For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesT
 
 If you want to use the older subject-folder layout instead, change `dataset_format` to `"subject_dirs"`.
 
-Each run now trains one model per fold under `data/outputs/<experiment_name>/fold_01/` through `fold_05/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, and `summary.json`, plus predicted validation masks under `fold_xx/validation/` as `.nii.gz` files, while the top-level `data/outputs/<experiment_name>/summary.json` stores the aggregated cross-validation metrics.
+Each run now trains one model per fold under `data/outputs/<experiment_name>/fold_01/` through `fold_05/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, and `summary.json`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<experiment_name>/summary.json` stores the aggregated cross-validation metrics.
 
 All bundled experiments now use the same shared 5-fold split file by default:
 

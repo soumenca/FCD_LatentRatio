@@ -305,7 +305,7 @@ def _predict_subject_mask(
     return prediction[: original_shape[0], : original_shape[1], : original_shape[2]]
 
 
-def _export_validation_masks(
+def _export_fold_masks(
     model: torch.nn.Module,
     subjects: list[SubjectSample],
     fold_dir: Path,
@@ -429,9 +429,9 @@ def _run_fold(
     model.load_state_dict(checkpoint["model_state_dict"])
 
     test_metrics = evaluate(model, test_loader, criterion, device) if test_subjects else {}
-    exported_validation_masks = _export_validation_masks(
+    exported_fold_masks = _export_fold_masks(
         model=model,
-        subjects=val_subjects,
+        subjects=test_subjects,
         fold_dir=fold_dir,
         input_mode=input_mode,
         patch_size=patch_size,
@@ -446,7 +446,7 @@ def _run_fold(
         "num_test_subjects": len(test_subjects),
         "best_val_dice": best_val_dice if best_val_dice >= 0 else None,
         "validation_predictions_dir": str(fold_dir / "validation"),
-        "num_validation_predictions": len(exported_validation_masks),
+        "num_validation_predictions": len(exported_fold_masks),
         "test_metrics": test_metrics,
     }
 
