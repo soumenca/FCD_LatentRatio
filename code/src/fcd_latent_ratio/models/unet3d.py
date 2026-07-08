@@ -78,10 +78,16 @@ class CompactRatioInteractionLearningModule(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         t1 = x[:, 0:1]
         flair = x[:, 1:2]
-        nonlinear_features = torch.cat([t1 * flair, torch.abs(t1 - flair)], dim=1)
+        ratio_features = torch.cat(
+            [
+                t1 / (torch.abs(flair) + 1e-6),
+                flair / (torch.abs(t1) + 1e-6),
+            ],
+            dim=1,
+        )
         local_features = self.local_branch(x)
         cross_modal_features = self.cross_modal_branch(x)
-        ratio_like_features = self.ratio_branch(nonlinear_features)
+        ratio_like_features = self.ratio_branch(ratio_features)
         return self.fuse(torch.cat([local_features, cross_modal_features, ratio_like_features], dim=1))
 
 

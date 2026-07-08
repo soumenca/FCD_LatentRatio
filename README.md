@@ -41,6 +41,24 @@ data/
 
 Default channel mapping is `_0000 -> T1w` and `_0001 -> FLAIR`. If `dataset.json` contains `channel_names`, the loader will use that mapping automatically when possible.
 
+For manual-ratio experiments, a 4-channel nnU-Net dataset is also supported:
+
+```text
+data/
+  dataset.json
+  imagesTr/
+    sub-001_0000.nii.gz   # T1w
+    sub-001_0001.nii.gz   # FLAIR
+    sub-001_0002.nii.gz   # T1w / FLAIR
+    sub-001_0003.nii.gz   # FLAIR / T1w
+  labelsTr/
+    sub-001.nii.gz
+```
+
+`exp_c` can now work with either:
+- a 2-channel dataset containing only `T1w` and `FLAIR`, in which case the code computes `T1w / FLAIR` and `FLAIR / T1w` internally
+- a 4-channel dataset containing precomputed ratio channels, in which case the loader reads `_0002` and `_0003` directly
+
 ### Subject-folder format
 
 The original subject-space layout is still supported:
@@ -70,7 +88,7 @@ If `subject_manifest.json` is missing, the loader infers metadata from the folde
 
 - [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
 - [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
-- [code/configs/exp_c_unet_with_ratios.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_c_unet_with_ratios.json): manual ratio-style benchmark
+- [code/configs/exp_c_unet_with_ratios.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_c_unet_with_ratios.json): manual bidirectional-ratio benchmark
 
 ## Quick start
 
@@ -160,6 +178,6 @@ Notes for full-dataset HPC runs:
 - The CRIL module uses three branches:
   - local intensity features via `3x3x3` convolution
   - cross-modal interaction via `1x1x1` convolution
-  - nonlinear ratio-like interaction from internal `T1w * FLAIR` and `|T1w - FLAIR|`
+  - bidirectional ratio interaction from internal `T1w / FLAIR` and `FLAIR / T1w`
 - The bottleneck compresses features to `4` latent channels by default.
 - The U-Net backbone is shared across all three experiments for a clean ablation.

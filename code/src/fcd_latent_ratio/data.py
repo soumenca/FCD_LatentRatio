@@ -21,6 +21,8 @@ class SubjectSample:
     has_label: bool
     t1_path: Path | None = None
     flair_path: Path | None = None
+    t1_flair_ratio_path: Path | None = None
+    flair_t1_ratio_path: Path | None = None
     label_path: Path | None = None
     brain_mask_path: Path | None = None
 
@@ -40,6 +42,8 @@ def _infer_subject_sample(subject_dir: Path, cohort_root: str, dataset: str) -> 
         has_label=label_path.exists(),
         t1_path=subject_dir / "T1w.nii.gz",
         flair_path=subject_dir / "FLAIR.nii.gz",
+        t1_flair_ratio_path=subject_dir / "T1w_div_FLAIR.nii.gz",
+        flair_t1_ratio_path=subject_dir / "FLAIR_div_T1w.nii.gz",
         label_path=label_path,
         brain_mask_path=subject_dir / "brain_mask.nii.gz",
     )
@@ -62,6 +66,15 @@ def _resolve_channel_index(dataset_json: dict, desired_names: tuple[str, ...], d
         if normalized in desired_names:
             return int(raw_index)
     return default_index
+
+
+def _resolve_optional_channel_index(dataset_json: dict, desired_names: tuple[str, ...]) -> int | None:
+    channel_names = dataset_json.get("channel_names", {})
+    for raw_index, raw_name in channel_names.items():
+        normalized = str(raw_name).strip().lower().replace(" ", "").replace("-", "").replace("/", "").replace("|", "")
+        if normalized in desired_names:
+            return int(raw_index)
+    return None
 
 
 def _build_subject_index_from_subject_dirs(root: Path, include_controls: bool = False) -> list[SubjectSample]:
@@ -89,6 +102,8 @@ def _build_subject_index_from_subject_dirs(root: Path, include_controls: bool = 
                             has_label=bool(meta.get("files", {}).get("label")) or (subject_dir / "label.nii.gz").exists(),
                             t1_path=subject_dir / meta.get("files", {}).get("t1", "T1w.nii.gz"),
                             flair_path=subject_dir / meta.get("files", {}).get("flair", "FLAIR.nii.gz"),
+                            t1_flair_ratio_path=subject_dir / meta.get("files", {}).get("t1_flair_ratio", "T1w_div_FLAIR.nii.gz"),
+                            flair_t1_ratio_path=subject_dir / meta.get("files", {}).get("flair_t1_ratio", "FLAIR_div_T1w.nii.gz"),
                             label_path=subject_dir / meta.get("files", {}).get("label", "label.nii.gz"),
                             brain_mask_path=subject_dir / meta.get("files", {}).get("brain_mask", "brain_mask.nii.gz"),
                         )
@@ -102,12 +117,24 @@ def _build_subject_index_from_nnunetv2(
     root: Path,
     t1_channel_index: int = 0,
     flair_channel_index: int = 1,
+    t1_flair_ratio_channel_index: int | None = None,
+    flair_t1_ratio_channel_index: int | None = None,
 ) -> list[SubjectSample]:
     dataset_json_path = root / "dataset.json"
     if dataset_json_path.exists():
         dataset_json = json.loads(dataset_json_path.read_text())
         t1_channel_index = _resolve_channel_index(dataset_json, ("t1w", "t1", "t1-weighted"), t1_channel_index)
         flair_channel_index = _resolve_channel_index(dataset_json, ("flair", "t2-flair", "t2 flair"), flair_channel_index)
+        if t1_flair_ratio_channel_index is None:
+            t1_flair_ratio_channel_index = _resolve_optional_channel_index(
+                dataset_json,
+                ("t1wflair", "t1divflair", "t1wdivflair", "t1flairratio"),
+            )
+        if flair_t1_ratio_channel_index is None:
+            flair_t1_ratio_channel_index = _resolve_optional_channel_index(
+                dataset_json,
+                ("flairt1w", "flairdivt1", "flairdivt1w", "flairt1ratio"),
+            )
 
     images_tr_dir = root / "imagesTr"
     labels_tr_dir = root / "labelsTr"
@@ -116,6 +143,8 @@ def _build_subject_index_from_nnunetv2(
 
     t1_suffix = _channel_suffix(t1_channel_index)
     flair_suffix = _channel_suffix(flair_channel_index)
+    t1_flair_ratio_suffix = _channel_suffix(t1_flair_ratio_channel_index) if t1_flair_ratio_channel_index is not None else None
+    flair_t1_ratio_suffix = _channel_suffix(flair_t1_ratio_channel_index) if flair_t1_ratio_channel_index is not None else None
     samples: list[SubjectSample] = []
     for t1_path in sorted(images_tr_dir.glob(f"*{t1_suffix}")):
         subject_id = _strip_channel_suffix(t1_path.name)
@@ -125,6 +154,16 @@ def _build_subject_index_from_nnunetv2(
                 f"Missing FLAIR channel for subject '{subject_id}'. Expected {flair_path.name} under {images_tr_dir}"
             )
         label_path = labels_tr_dir / f"{subject_id}.nii.gz"
+        t1_flair_ratio_path = (
+            images_tr_dir / f"{subject_id}{t1_flair_ratio_suffix}"
+            if t1_flair_ratio_suffix is not None and (images_tr_dir / f"{subject_id}{t1_flair_ratio_suffix}").exists()
+            else None
+        )
+        flair_t1_ratio_path = (
+            images_tr_dir / f"{subject_id}{flair_t1_ratio_suffix}"
+            if flair_t1_ratio_suffix is not None and (images_tr_dir / f"{subject_id}{flair_t1_ratio_suffix}").exists()
+            else None
+        )
         samples.append(
             SubjectSample(
                 subject_dir=root / subject_id,
@@ -135,6 +174,8 @@ def _build_subject_index_from_nnunetv2(
                 has_label=label_path.exists(),
                 t1_path=t1_path,
                 flair_path=flair_path,
+                t1_flair_ratio_path=t1_flair_ratio_path,
+                flair_t1_ratio_path=flair_t1_ratio_path,
                 label_path=label_path,
                 brain_mask_path=None,
             )
@@ -148,6 +189,8 @@ def build_subject_index(
     dataset_format: str = "subject_dirs",
     t1_channel_index: int = 0,
     flair_channel_index: int = 1,
+    t1_flair_ratio_channel_index: int | None = None,
+    flair_t1_ratio_channel_index: int | None = None,
 ) -> list[SubjectSample]:
     if dataset_format == "subject_dirs":
         return _build_subject_index_from_subject_dirs(root, include_controls=include_controls)
@@ -156,6 +199,8 @@ def build_subject_index(
             root,
             t1_channel_index=t1_channel_index,
             flair_channel_index=flair_channel_index,
+            t1_flair_ratio_channel_index=t1_flair_ratio_channel_index,
+            flair_t1_ratio_channel_index=flair_t1_ratio_channel_index,
         )
     raise ValueError(f"Unsupported dataset_format: {dataset_format}")
 
@@ -219,13 +264,24 @@ def build_cross_validation_folds(
 def load_subject_arrays(subject: SubjectSample) -> dict[str, np.ndarray]:
     t1_path = subject.t1_path or (subject.subject_dir / "T1w.nii.gz")
     flair_path = subject.flair_path or (subject.subject_dir / "FLAIR.nii.gz")
+    t1_flair_ratio_path = subject.t1_flair_ratio_path or (subject.subject_dir / "T1w_div_FLAIR.nii.gz")
+    flair_t1_ratio_path = subject.flair_t1_ratio_path or (subject.subject_dir / "FLAIR_div_T1w.nii.gz")
     label_path = subject.label_path or (subject.subject_dir / "label.nii.gz")
     brain_mask_path = subject.brain_mask_path or (subject.subject_dir / "brain_mask.nii.gz")
     t1 = _load_nifti(t1_path)
     flair = _load_nifti(flair_path)
+    t1_flair_ratio = _load_nifti(t1_flair_ratio_path) if t1_flair_ratio_path.exists() else None
+    flair_t1_ratio = _load_nifti(flair_t1_ratio_path) if flair_t1_ratio_path.exists() else None
     label = _load_nifti(label_path) if label_path.exists() else np.zeros_like(t1, dtype=np.float32)
     brain_mask = _load_nifti(brain_mask_path) if brain_mask_path.exists() else np.ones_like(t1, dtype=np.float32)
-    return {"t1": t1, "flair": flair, "label": label, "brain_mask": brain_mask}
+    return {
+        "t1": t1,
+        "flair": flair,
+        "t1_flair_ratio": t1_flair_ratio,
+        "flair_t1_ratio": flair_t1_ratio,
+        "label": label,
+        "brain_mask": brain_mask,
+    }
 
 
 def zscore_inside_mask(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -274,13 +330,27 @@ def choose_patch_start(
     return tuple(starts)
 
 
-def build_input_channels(t1: np.ndarray, flair: np.ndarray, input_mode: str) -> np.ndarray:
+def build_input_channels(
+    t1: np.ndarray,
+    flair: np.ndarray,
+    input_mode: str,
+    t1_flair_ratio: np.ndarray | None = None,
+    flair_t1_ratio: np.ndarray | None = None,
+) -> np.ndarray:
     if input_mode == "t1_flair":
         return np.stack([t1, flair], axis=0)
     if input_mode == "t1_flair_ratio":
-        ratio = t1 / (np.abs(flair) + 1e-6)
-        abs_diff = np.abs(t1 - flair)
-        return np.stack([t1, flair, ratio.astype(np.float32), abs_diff.astype(np.float32)], axis=0)
+        ratio_t1_flair = (
+            t1_flair_ratio.astype(np.float32)
+            if t1_flair_ratio is not None
+            else (t1 / (np.abs(flair) + 1e-6)).astype(np.float32)
+        )
+        ratio_flair_t1 = (
+            flair_t1_ratio.astype(np.float32)
+            if flair_t1_ratio is not None
+            else (flair / (np.abs(t1) + 1e-6)).astype(np.float32)
+        )
+        return np.stack([t1, flair, ratio_t1_flair, ratio_flair_t1], axis=0)
     raise ValueError(f"Unsupported input_mode: {input_mode}")
 
 
@@ -305,11 +375,17 @@ class Patch3DSegmentationDataset(Dataset):
         arrays = load_subject_arrays(subject)
         t1 = zscore_inside_mask(arrays["t1"], arrays["brain_mask"])
         flair = zscore_inside_mask(arrays["flair"], arrays["brain_mask"])
+        t1_flair_ratio = arrays["t1_flair_ratio"]
+        flair_t1_ratio = arrays["flair_t1_ratio"]
         label = (arrays["label"] > 0).astype(np.float32)
 
         target_shape = tuple(max(size, patch) for size, patch in zip(t1.shape, self.patch_size))
         t1 = pad_if_needed(t1, target_shape)
         flair = pad_if_needed(flair, target_shape)
+        if t1_flair_ratio is not None:
+            t1_flair_ratio = pad_if_needed(t1_flair_ratio.astype(np.float32), target_shape)
+        if flair_t1_ratio is not None:
+            flair_t1_ratio = pad_if_needed(flair_t1_ratio.astype(np.float32), target_shape)
         label = pad_if_needed(label, target_shape)
 
         center = None
@@ -320,8 +396,20 @@ class Patch3DSegmentationDataset(Dataset):
 
         t1_patch = crop_patch(t1, start, self.patch_size)
         flair_patch = crop_patch(flair, start, self.patch_size)
+        t1_flair_ratio_patch = (
+            crop_patch(t1_flair_ratio, start, self.patch_size) if t1_flair_ratio is not None else None
+        )
+        flair_t1_ratio_patch = (
+            crop_patch(flair_t1_ratio, start, self.patch_size) if flair_t1_ratio is not None else None
+        )
         label_patch = crop_patch(label, start, self.patch_size)
-        image = build_input_channels(t1_patch, flair_patch, self.input_mode)
+        image = build_input_channels(
+            t1_patch,
+            flair_patch,
+            self.input_mode,
+            t1_flair_ratio=t1_flair_ratio_patch,
+            flair_t1_ratio=flair_t1_ratio_patch,
+        )
 
         return {
             "image": torch.from_numpy(image),

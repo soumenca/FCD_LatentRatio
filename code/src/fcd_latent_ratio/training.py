@@ -271,6 +271,16 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         dataset_format=dataset_format,
         t1_channel_index=int(config.get("t1_channel_index", 0)),
         flair_channel_index=int(config.get("flair_channel_index", 1)),
+        t1_flair_ratio_channel_index=(
+            int(config["t1_flair_ratio_channel_index"])
+            if config.get("t1_flair_ratio_channel_index") is not None
+            else None
+        ),
+        flair_t1_ratio_channel_index=(
+            int(config["flair_t1_ratio_channel_index"])
+            if config.get("flair_t1_ratio_channel_index") is not None
+            else None
+        ),
     )
     if not subjects:
         raise SystemExit(f"No subjects found under {data_root}")
