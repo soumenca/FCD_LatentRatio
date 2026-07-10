@@ -295,6 +295,30 @@ data/outputs/<run_name>/
 
 If you use `OUTPUT_ROOT_OVERRIDE`, outputs go there instead.
 
+## Analyze Predicted Masks
+
+After a run finishes, you can recompute segmentation metrics for every saved predicted mask:
+
+```bash
+python code/scripts/analyze_predictions.py \
+  --run-dir data/outputs/exp_a_unet_e5__db__e300
+```
+
+This writes:
+
+- `prediction_analysis/per_subject_metrics.csv`
+- `prediction_analysis/foldwise_overall_metrics.csv`
+- `prediction_analysis/paper_error_cases.csv`
+- `prediction_analysis/summary.json`
+
+You can also point it at a different dataset root if needed:
+
+```bash
+python code/scripts/analyze_predictions.py \
+  --run-dir /path/to/run_dir \
+  --data-root /path/to/dataset
+```
+
 ### Notes
 
 - The SLURM script uses your M3 settings: `gpu`, `1 GPU`, `8 CPUs`, `96G`, `2 days`, array `0-4`

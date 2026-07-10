@@ -83,6 +83,55 @@ def _surface_distances(mask_a: np.ndarray, mask_b: np.ndarray) -> np.ndarray:
     ).astype(np.float32)
 
 
+def dice_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    pred = pred_mask.astype(np.float32) > 0.5
+    target = target_mask.astype(np.float32) > 0.5
+    intersection = float(np.logical_and(pred, target).sum())
+    denom = float(pred.sum() + target.sum())
+    return (2.0 * intersection + 1e-6) / (denom + 1e-6)
+
+
+def iou_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    pred = pred_mask.astype(np.float32) > 0.5
+    target = target_mask.astype(np.float32) > 0.5
+    intersection = float(np.logical_and(pred, target).sum())
+    union = float(np.logical_or(pred, target).sum())
+    return (intersection + 1e-6) / (union + 1e-6)
+
+
+def precision_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    pred = pred_mask.astype(np.float32) > 0.5
+    target = target_mask.astype(np.float32) > 0.5
+    true_positive = float(np.logical_and(pred, target).sum())
+    predicted_positive = float(pred.sum())
+    return (true_positive + 1e-6) / (predicted_positive + 1e-6)
+
+
+def recall_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    pred = pred_mask.astype(np.float32) > 0.5
+    target = target_mask.astype(np.float32) > 0.5
+    true_positive = float(np.logical_and(pred, target).sum())
+    target_positive = float(target.sum())
+    return (true_positive + 1e-6) / (target_positive + 1e-6)
+
+
+def sensitivity_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    return recall_score_from_masks(pred_mask, target_mask)
+
+
+def specificity_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    pred = pred_mask.astype(np.float32) > 0.5
+    target = target_mask.astype(np.float32) > 0.5
+    true_negative = float(np.logical_and(~pred, ~target).sum())
+    target_negative = float((~target).sum())
+    return (true_negative + 1e-6) / (target_negative + 1e-6)
+
+
+def hd95_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
+    distances = _surface_distances(pred_mask.astype(np.uint8), target_mask.astype(np.uint8))
+    return float(np.percentile(distances, 95))
+
+
 def hd95_score_from_logits(logits: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
     probs = torch.sigmoid(logits)
     pred = (probs >= threshold).detach().cpu().numpy().astype(np.uint8)
