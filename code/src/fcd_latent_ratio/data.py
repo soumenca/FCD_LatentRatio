@@ -49,6 +49,14 @@ def _infer_subject_sample(subject_dir: Path, cohort_root: str, dataset: str) -> 
     )
 
 
+def _infer_nnunetv2_cohort(subject_id: str) -> tuple[str, str]:
+    if subject_id.startswith("FCD_"):
+        return "nnunetv2", "patient"
+    if subject_id.startswith("CON_"):
+        return "nnunetv2", "control"
+    return "nnunetv2", "case"
+
+
 def _channel_suffix(channel_index: int) -> str:
     return f"_{channel_index:04d}.nii.gz"
 
@@ -115,6 +123,7 @@ def _build_subject_index_from_subject_dirs(root: Path, include_controls: bool = 
 
 def _build_subject_index_from_nnunetv2(
     root: Path,
+    include_controls: bool = False,
     t1_channel_index: int = 0,
     flair_channel_index: int = 1,
     t1_flair_ratio_channel_index: int | None = None,
@@ -148,6 +157,9 @@ def _build_subject_index_from_nnunetv2(
     samples: list[SubjectSample] = []
     for t1_path in sorted(images_tr_dir.glob(f"*{t1_suffix}")):
         subject_id = _strip_channel_suffix(t1_path.name)
+        cohort_root, cohort_role = _infer_nnunetv2_cohort(subject_id)
+        if cohort_role == "control" and not include_controls:
+            continue
         flair_path = images_tr_dir / f"{subject_id}{flair_suffix}"
         if not flair_path.exists():
             raise FileNotFoundError(
@@ -169,8 +181,8 @@ def _build_subject_index_from_nnunetv2(
                 subject_dir=root / subject_id,
                 dataset=root.name,
                 subject_id=subject_id,
-                cohort_root="nnunetv2",
-                cohort_role="case",
+                cohort_root=cohort_root,
+                cohort_role=cohort_role,
                 has_label=label_path.exists(),
                 t1_path=t1_path,
                 flair_path=flair_path,
@@ -197,6 +209,7 @@ def build_subject_index(
     if dataset_format == "nnunetv2":
         return _build_subject_index_from_nnunetv2(
             root,
+            include_controls=include_controls,
             t1_channel_index=t1_channel_index,
             flair_channel_index=flair_channel_index,
             t1_flair_ratio_channel_index=t1_flair_ratio_channel_index,
