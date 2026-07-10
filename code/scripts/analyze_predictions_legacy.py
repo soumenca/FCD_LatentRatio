@@ -205,8 +205,6 @@ def main() -> None:
         "subject_id",
         "dataset",
         "cohort_role",
-        "prediction_path",
-        "label_path",
         "pred_voxels",
         "label_voxels",
         "is_lesion_positive",
@@ -250,8 +248,6 @@ def main() -> None:
         "is_fp_control",
         "dice",
         "hd95",
-        "prediction_path",
-        "label_path",
     ]
     failure_rows = [
         _select_fields(row, failure_fieldnames)

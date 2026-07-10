@@ -433,7 +433,8 @@ def main() -> int:
     error_cases_csv = output_dir / "segmentation_metrics_paper_error_cases.csv"
     summary_json = output_dir / "segmentation_metrics_summary.json"
 
-    common_fieldnames = list(rows[0].keys())
+    csv_excluded_fields = {"prediction_path", "label_path"}
+    common_fieldnames = [field for field in rows[0].keys() if field not in csv_excluded_fields]
     _write_csv(per_case_csv, rows, common_fieldnames)
     _write_csv(fcd_per_case_csv, fcd_rows, common_fieldnames)
     _write_csv(control_per_case_csv, control_rows, common_fieldnames)
