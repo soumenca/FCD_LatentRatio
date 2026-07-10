@@ -94,6 +94,10 @@ def _resolve_output_dir(args: argparse.Namespace) -> Path:
     return args.run_dir / "prediction_analysis"
 
 
+def _select_fields(row: dict[str, object], fieldnames: list[str]) -> dict[str, object]:
+    return {fieldname: row.get(fieldname) for fieldname in fieldnames}
+
+
 def main() -> None:
     args = parse_args()
     run_dir = args.run_dir.resolve()
@@ -250,7 +254,9 @@ def main() -> None:
         "label_path",
     ]
     failure_rows = [
-        row for row in per_subject_rows if bool(row["is_missed_fcd"]) or bool(row["is_fp_control"])
+        _select_fields(row, failure_fieldnames)
+        for row in per_subject_rows
+        if bool(row["is_missed_fcd"]) or bool(row["is_fp_control"])
     ]
     with failure_csv_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=failure_fieldnames)

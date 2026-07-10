@@ -129,6 +129,8 @@ def specificity_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray)
 
 def hd95_score_from_masks(pred_mask: np.ndarray, target_mask: np.ndarray) -> float:
     distances = _surface_distances(pred_mask.astype(np.uint8), target_mask.astype(np.uint8))
+    if not np.all(np.isfinite(distances)):
+        return float("inf")
     return float(np.percentile(distances, 95))
 
 
