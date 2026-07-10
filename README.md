@@ -306,15 +306,11 @@ python code/scripts/analyze_predictions.py \
 
 This writes:
 
-- `prediction_analysis/segmentation_metrics_per_case.csv`
-- `prediction_analysis/segmentation_metrics_per_case_fcd.csv`
-- `prediction_analysis/segmentation_metrics_per_case_control.csv`
-- `prediction_analysis/segmentation_metrics_per_fold.csv`
-- `prediction_analysis/segmentation_metrics_dice_gt_0_summary.csv`
-- `prediction_analysis/segmentation_metrics_paper_summary.csv`
-- `prediction_analysis/segmentation_metrics_paper_summary_detected_only.csv`
-- `prediction_analysis/segmentation_metrics_paper_error_cases.csv`
-- `prediction_analysis/segmentation_metrics_summary.json`
+- `prediction_analysis/segmentation_metrics_all_subjects.csv`
+- `prediction_analysis/segmentation_metrics_fcd_subjects.csv`
+- `prediction_analysis/segmentation_metrics_hc_subjects.csv`
+- `prediction_analysis/segmentation_metrics_foldwise_summary.csv` (FCD subjects only)
+- `prediction_analysis/segmentation_metrics_error_counts.csv`
 
 You can also point it at a different dataset root if needed:
 
