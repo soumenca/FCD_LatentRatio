@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
+"""Compute segmentation metrics from saved fold validation predictions."""
+
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import math
-import sys
 from pathlib import Path
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
+import sys
 
 import nibabel as nib
 import numpy as np
@@ -20,25 +21,31 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from fcd_latent_ratio.data import build_subject_index
-from fcd_latent_ratio.metrics import (
-    dice_score_from_masks,
-    hd95_score_from_masks,
-    iou_score_from_masks,
-    precision_score_from_masks,
-    recall_score_from_masks,
-    sensitivity_score_from_masks,
-    specificity_score_from_masks,
-)
-
-
-METRIC_NAMES = ("dice", "hd95", "iou", "precision", "recall", "sensitivity", "specificity")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze saved predicted masks and compute segmentation metrics.")
-    parser.add_argument("--run-dir", type=Path, required=True, help="Run output directory containing fold_*/validation manifests.")
-    parser.add_argument("--data-root", type=Path, help="Optional override for config.snapshot.json data_root.")
-    parser.add_argument("--output-dir", type=Path, help="Optional override for analysis outputs. Defaults to <run-dir>/prediction_analysis.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute voxel-wise segmentation metrics for saved fold validation "
+            "predictions and export per-case plus paper-ready summaries."
+        )
+    )
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        required=True,
+        help="Run directory containing fold_* folders with validation/manifest.json files.",
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        help="Optional override for config.snapshot.json data_root.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Optional override for analysis outputs. Defaults to <run-dir>/prediction_analysis.",
+    )
     parser.add_argument(
         "--subject-ids",
         nargs="+",
@@ -47,45 +54,221 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_mask(path: Path) -> np.ndarray:
-    return (np.asarray(nib.load(str(path)).get_fdata()) > 0.5).astype(np.uint8)
+def safe_divide(numerator: float, denominator: float, both_empty_value: float = 1.0) -> float:
+    if denominator == 0:
+        return both_empty_value
+    return numerator / denominator
 
 
-def _aggregate_rows(rows: list[dict[str, float]]) -> dict[str, dict[str, float] | int]:
-    summary: dict[str, dict[str, float] | int] = {"num_subjects": len(rows)}
-    for metric_name in METRIC_NAMES:
-        values = [float(row[metric_name]) for row in rows if metric_name in row and math.isfinite(float(row[metric_name]))]
-        if not values:
-            summary[metric_name] = {"mean": None, "std": None, "min": None, "max": None}
-            continue
-        summary[metric_name] = {
-            "mean": mean(values),
-            "std": pstdev(values) if len(values) > 1 else 0.0,
-            "min": min(values),
-            "max": max(values),
-        }
+def load_binary_mask(path: Path) -> tuple[np.ndarray, float]:
+    image = nib.load(str(path))
+    data = np.asarray(image.get_fdata(), dtype=np.float32)
+    spacing = image.header.get_zooms()[:3]
+    voxel_volume_mm3 = float(np.prod(spacing))
+    return data > 0.5, voxel_volume_mm3
+
+
+def compute_case_metrics(pred_mask: np.ndarray, gt_mask: np.ndarray, voxel_volume_mm3: float) -> dict[str, float]:
+    pred = pred_mask.astype(bool)
+    gt = gt_mask.astype(bool)
+
+    tp = float(np.logical_and(pred, gt).sum())
+    fp = float(np.logical_and(pred, np.logical_not(gt)).sum())
+    fn = float(np.logical_and(np.logical_not(pred), gt).sum())
+    tn = float(np.logical_and(np.logical_not(pred), np.logical_not(gt)).sum())
+
+    pred_voxels = float(pred.sum())
+    gt_voxels = float(gt.sum())
+
+    dice = safe_divide(2.0 * tp, 2.0 * tp + fp + fn)
+    iou = safe_divide(tp, tp + fp + fn)
+    precision = safe_divide(tp, tp + fp, both_empty_value=1.0 if gt_voxels == 0 else 0.0)
+    recall = safe_divide(tp, tp + fn)
+    sensitivity = recall
+    specificity = safe_divide(tn, tn + fp)
+    accuracy = safe_divide(tp + tn, tp + tn + fp + fn)
+    fpr = safe_divide(fp, fp + tn, both_empty_value=0.0)
+    fnr = safe_divide(fn, fn + tp, both_empty_value=0.0)
+    volume_diff_voxels = pred_voxels - gt_voxels
+    abs_volume_diff_voxels = abs(volume_diff_voxels)
+    volume_diff_mm3 = volume_diff_voxels * voxel_volume_mm3
+    abs_volume_diff_mm3 = abs(volume_diff_mm3)
+
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "pred_voxels": pred_voxels,
+        "gt_voxels": gt_voxels,
+        "pred_volume_mm3": pred_voxels * voxel_volume_mm3,
+        "gt_volume_mm3": gt_voxels * voxel_volume_mm3,
+        "dice": dice,
+        "iou": iou,
+        "precision": precision,
+        "recall": recall,
+        "sensitivity": sensitivity,
+        "specificity": specificity,
+        "accuracy": accuracy,
+        "false_positive_rate": fpr,
+        "false_negative_rate": fnr,
+        "volume_diff_voxels": volume_diff_voxels,
+        "abs_volume_diff_voxels": abs_volume_diff_voxels,
+        "volume_diff_mm3": volume_diff_mm3,
+        "abs_volume_diff_mm3": abs_volume_diff_mm3,
+        "gt_nonempty": float(gt_voxels > 0),
+        "pred_nonempty": float(pred_voxels > 0),
+    }
+
+
+def _mean(values: list[float]) -> float:
+    return float(mean(values)) if values else float("nan")
+
+
+def _std(values: list[float]) -> float:
+    if not values:
+        return float("nan")
+    return float(pstdev(values)) if len(values) > 1 else 0.0
+
+
+def _median(values: list[float]) -> float:
+    return float(median(values)) if values else float("nan")
+
+
+def aggregate_metrics(rows: list[dict[str, object]], group_name: str) -> dict[str, object]:
+    metric_cols = [
+        "dice",
+        "iou",
+        "precision",
+        "recall",
+        "sensitivity",
+        "specificity",
+        "accuracy",
+        "false_positive_rate",
+        "false_negative_rate",
+        "pred_volume_mm3",
+        "gt_volume_mm3",
+        "volume_diff_mm3",
+        "abs_volume_diff_mm3",
+    ]
+    summary: dict[str, object] = {
+        "group": group_name,
+        "num_cases": int(len(rows)),
+        "num_gt_positive_cases": int(sum(float(row["gt_nonempty"]) for row in rows)),
+        "num_pred_positive_cases": int(sum(float(row["pred_nonempty"]) for row in rows)),
+        "num_zero_dice_cases": int(sum(float(row["dice"]) == 0.0 for row in rows)),
+        "zero_dice_rate": float(sum(float(row["dice"]) == 0.0 for row in rows) / len(rows)) if rows else 0.0,
+        "num_zero_dice_and_pred_positive_cases": int(
+            sum((float(row["dice"]) == 0.0) and (float(row["pred_nonempty"]) == 1.0) for row in rows)
+        ),
+        "num_zero_dice_and_pred_empty_cases": int(
+            sum((float(row["dice"]) == 0.0) and (float(row["pred_nonempty"]) == 0.0) for row in rows)
+        ),
+        "num_overlap_detected_cases": int(sum(float(row["dice"]) > 0.0 for row in rows)),
+    }
+    for col in metric_cols:
+        values = [float(row[col]) for row in rows]
+        summary[f"{col}_mean"] = _mean(values)
+        summary[f"{col}_std"] = _std(values)
+        summary[f"{col}_median"] = _median(values)
     return summary
 
 
-def _summary_row(split_name: str, rows: list[dict[str, object]]) -> dict[str, object]:
-    aggregated = _aggregate_rows(rows)
-    lesion_positive_rows = [row for row in rows if bool(row["is_lesion_positive"])]
-    control_rows = [row for row in rows if bool(row["is_control"])]
-    missed_fcd_rows = [row for row in rows if bool(row["is_missed_fcd"])]
-    fp_control_rows = [row for row in rows if bool(row["is_fp_control"])]
-    row: dict[str, object] = {
-        "split": split_name,
-        "num_subjects": aggregated["num_subjects"],
-        "num_lesion_positive": len(lesion_positive_rows),
-        "num_controls": len(control_rows),
-        "num_missed_fcd": len(missed_fcd_rows),
-        "num_fp_controls": len(fp_control_rows),
+def aggregate_positive_dice_metrics(rows: list[dict[str, object]], group_name: str) -> dict[str, object]:
+    filtered = [row for row in rows if float(row["dice"]) > 0.0]
+    summary: dict[str, object] = {
+        "group": f"{group_name}_dice_gt_0",
+        "num_cases": int(len(filtered)),
+        "detected_only_rate": float(len(filtered) / len(rows)) if rows else 0.0,
     }
-    for metric_name in METRIC_NAMES:
-        metric_summary = aggregated[metric_name]
-        row[f"{metric_name}_mean"] = metric_summary["mean"]
-        row[f"{metric_name}_std"] = metric_summary["std"]
-    return row
+    if not filtered:
+        return summary
+
+    metric_cols = [
+        "dice",
+        "iou",
+        "precision",
+        "recall",
+        "sensitivity",
+        "specificity",
+        "accuracy",
+        "false_positive_rate",
+        "false_negative_rate",
+        "pred_volume_mm3",
+        "gt_volume_mm3",
+        "volume_diff_mm3",
+        "abs_volume_diff_mm3",
+    ]
+    for col in metric_cols:
+        values = [float(row[col]) for row in filtered]
+        summary[f"{col}_mean"] = _mean(values)
+        summary[f"{col}_std"] = _std(values)
+        summary[f"{col}_median"] = _median(values)
+    return summary
+
+
+def build_paper_summary_rows(
+    fcd_summary: dict[str, object],
+    control_summary: dict[str, object],
+    fcd_positive_dice_summary: dict[str, object],
+    control_positive_dice_summary: dict[str, object],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    main_rows = [
+        {
+            "group": "FCD",
+            "num_cases": fcd_summary["num_cases"],
+            "dice_mean": fcd_summary["dice_mean"],
+            "dice_std": fcd_summary["dice_std"],
+            "sensitivity_mean": fcd_summary["sensitivity_mean"],
+            "sensitivity_std": fcd_summary["sensitivity_std"],
+            "precision_mean": fcd_summary["precision_mean"],
+            "precision_std": fcd_summary["precision_std"],
+            "zero_dice_cases": fcd_summary["fcd_zero_dice_cases"],
+            "zero_dice_rate": fcd_summary["fcd_zero_dice_rate"],
+            "control_cases_with_predicted_lesion": float("nan"),
+            "control_predicted_lesion_rate": float("nan"),
+        },
+        {
+            "group": "control",
+            "num_cases": control_summary["num_cases"],
+            "dice_mean": float("nan"),
+            "dice_std": float("nan"),
+            "sensitivity_mean": float("nan"),
+            "sensitivity_std": float("nan"),
+            "precision_mean": float("nan"),
+            "precision_std": float("nan"),
+            "zero_dice_cases": float("nan"),
+            "zero_dice_rate": float("nan"),
+            "control_cases_with_predicted_lesion": control_summary["control_cases_with_predicted_lesion"],
+            "control_predicted_lesion_rate": control_summary["control_predicted_lesion_rate"],
+        },
+    ]
+
+    detected_only_rows = [
+        {
+            "group": "FCD_detected_only",
+            "num_cases_dice_gt_0": fcd_positive_dice_summary["num_cases"],
+            "detected_only_rate": fcd_positive_dice_summary["detected_only_rate"],
+            "dice_mean": fcd_positive_dice_summary.get("dice_mean", float("nan")),
+            "dice_std": fcd_positive_dice_summary.get("dice_std", float("nan")),
+            "sensitivity_mean": fcd_positive_dice_summary.get("sensitivity_mean", float("nan")),
+            "sensitivity_std": fcd_positive_dice_summary.get("sensitivity_std", float("nan")),
+            "precision_mean": fcd_positive_dice_summary.get("precision_mean", float("nan")),
+            "precision_std": fcd_positive_dice_summary.get("precision_std", float("nan")),
+        },
+        {
+            "group": "control_detected_only",
+            "num_cases_dice_gt_0": control_positive_dice_summary["num_cases"],
+            "detected_only_rate": control_positive_dice_summary["detected_only_rate"],
+            "dice_mean": control_positive_dice_summary.get("dice_mean", float("nan")),
+            "dice_std": control_positive_dice_summary.get("dice_std", float("nan")),
+            "sensitivity_mean": control_positive_dice_summary.get("sensitivity_mean", float("nan")),
+            "sensitivity_std": control_positive_dice_summary.get("sensitivity_std", float("nan")),
+            "precision_mean": control_positive_dice_summary.get("precision_mean", float("nan")),
+            "precision_std": control_positive_dice_summary.get("precision_std", float("nan")),
+        },
+    ]
+    return main_rows, detected_only_rows
 
 
 def _resolve_output_dir(args: argparse.Namespace) -> Path:
@@ -98,17 +281,27 @@ def _select_fields(row: dict[str, object], fieldnames: list[str]) -> dict[str, o
     return {fieldname: row.get(fieldname) for fieldname in fieldnames}
 
 
-def main() -> None:
+def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows([_select_fields(row, fieldnames) for row in rows])
+
+
+def main() -> int:
     args = parse_args()
     run_dir = args.run_dir.resolve()
+    output_dir = _resolve_output_dir(args).resolve()
     config_path = run_dir / "config.snapshot.json"
     if not config_path.exists():
-        raise SystemExit(f"Missing config snapshot: {config_path}")
+        raise FileNotFoundError(f"Missing config snapshot: {config_path}")
 
     config = json.loads(config_path.read_text())
     data_root = args.data_root or Path(config["data_root"])
     if not data_root.is_absolute():
         data_root = REPO_ROOT / data_root
+    if not data_root.exists():
+        raise FileNotFoundError(f"Data root does not exist: {data_root}")
 
     subjects = build_subject_index(
         data_root,
@@ -130,156 +323,163 @@ def main() -> None:
     subject_map = {subject.subject_id: subject for subject in subjects}
     requested_subject_ids = set(args.subject_ids or [])
 
-    output_dir = _resolve_output_dir(args)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    fold_dirs = sorted(path for path in run_dir.glob("fold_*") if path.is_dir())
+    if not fold_dirs:
+        raise FileNotFoundError(f"No fold_* directories found under {run_dir}")
 
-    per_subject_rows: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     fold_summaries: list[dict[str, object]] = []
+    fold_positive_dice_summaries: list[dict[str, object]] = []
 
-    for fold_dir in sorted(path for path in run_dir.glob("fold_*") if path.is_dir()):
+    for fold_dir in fold_dirs:
         manifest_path = fold_dir / "validation" / "manifest.json"
         if not manifest_path.exists():
+            print(f"Skipping {fold_dir.name}: missing manifest {manifest_path}")
             continue
+
         manifest = json.loads(manifest_path.read_text())
-        fold_rows: list[dict[str, float | str | int]] = []
+        fold_rows: list[dict[str, object]] = []
         for item in manifest:
             subject_id = item["subject_id"]
             if requested_subject_ids and subject_id not in requested_subject_ids:
                 continue
             if subject_id not in subject_map:
-                raise SystemExit(f"Subject '{subject_id}' from {manifest_path} was not found under {data_root}")
+                raise FileNotFoundError(f"Subject '{subject_id}' from {manifest_path} was not found under {data_root}")
             subject = subject_map[subject_id]
             if subject.label_path is None or not subject.label_path.exists():
-                raise SystemExit(f"Ground-truth label is missing for subject '{subject_id}'")
+                raise FileNotFoundError(f"Missing ground-truth label for '{subject_id}'")
 
             prediction_path = Path(item["prediction_path"])
             if not prediction_path.is_absolute():
                 prediction_path = (fold_dir / "validation" / prediction_path.name).resolve()
             if not prediction_path.exists():
-                raise SystemExit(f"Prediction file does not exist: {prediction_path}")
+                raise FileNotFoundError(f"Prediction file does not exist: {prediction_path}")
 
-            pred_mask = _load_mask(prediction_path)
-            target_mask = _load_mask(subject.label_path)
-            if pred_mask.shape != target_mask.shape:
-                raise SystemExit(
-                    f"Shape mismatch for subject '{subject_id}': prediction {pred_mask.shape} vs label {target_mask.shape}"
+            pred_mask, pred_voxel_volume = load_binary_mask(prediction_path)
+            gt_mask, gt_voxel_volume = load_binary_mask(subject.label_path)
+            if pred_mask.shape != gt_mask.shape:
+                raise ValueError(
+                    f"Shape mismatch for {subject_id}: pred {pred_mask.shape} vs gt {gt_mask.shape}"
                 )
 
+            voxel_volume_mm3 = gt_voxel_volume
+            if not np.isclose(pred_voxel_volume, gt_voxel_volume):
+                print(
+                    f"Warning: voxel volume mismatch for {subject_id}; using ground-truth "
+                    f"volume {gt_voxel_volume:.6f} mm^3"
+                )
+
+            metrics = compute_case_metrics(pred_mask, gt_mask, voxel_volume_mm3)
             row = {
                 "fold": fold_dir.name,
-                "subject_id": subject_id,
+                "case_id": subject_id,
+                "group": "control" if subject.cohort_role == "control" else "FCD",
                 "dataset": subject.dataset,
                 "cohort_role": subject.cohort_role,
                 "prediction_path": str(prediction_path),
                 "label_path": str(subject.label_path),
-                "pred_voxels": int(pred_mask.sum()),
-                "label_voxels": int(target_mask.sum()),
-                "dice": dice_score_from_masks(pred_mask, target_mask),
-                "hd95": hd95_score_from_masks(pred_mask, target_mask),
-                "iou": iou_score_from_masks(pred_mask, target_mask),
-                "precision": precision_score_from_masks(pred_mask, target_mask),
-                "recall": recall_score_from_masks(pred_mask, target_mask),
-                "sensitivity": sensitivity_score_from_masks(pred_mask, target_mask),
-                "specificity": specificity_score_from_masks(pred_mask, target_mask),
+                **metrics,
             }
-            row["is_lesion_positive"] = row["label_voxels"] > 0
-            row["is_control"] = subject.cohort_role == "control"
-            row["is_missed_fcd"] = row["is_lesion_positive"] and row["pred_voxels"] == 0
-            row["is_fp_control"] = row["is_control"] and row["pred_voxels"] > 0
-            per_subject_rows.append(row)
+            rows.append(row)
             fold_rows.append(row)
 
-        fold_summaries.append(
+        if fold_rows:
+            fold_summaries.append(aggregate_metrics(fold_rows, fold_dir.name))
+            fold_positive_dice_summaries.append(aggregate_positive_dice_metrics(fold_rows, fold_dir.name))
+
+    if not rows:
+        raise RuntimeError(f"No prediction/label pairs were processed from {run_dir}")
+
+    rows.sort(key=lambda row: (str(row["fold"]), str(row["case_id"])))
+    overall_summary = aggregate_metrics(rows, "overall")
+
+    fcd_rows = [row for row in rows if row["group"] == "FCD"]
+    control_rows = [row for row in rows if row["group"] == "control"]
+    fcd_summary = aggregate_metrics(fcd_rows, "FCD")
+    control_summary = aggregate_metrics(control_rows, "control")
+    overall_positive_dice_summary = aggregate_positive_dice_metrics(rows, "overall")
+    fcd_positive_dice_summary = aggregate_positive_dice_metrics(fcd_rows, "FCD")
+    control_positive_dice_summary = aggregate_positive_dice_metrics(control_rows, "control")
+
+    fcd_summary["fcd_zero_dice_cases"] = fcd_summary["num_zero_dice_cases"]
+    fcd_summary["fcd_zero_dice_rate"] = fcd_summary["zero_dice_rate"]
+    control_summary["control_cases_with_predicted_lesion"] = control_summary["num_pred_positive_cases"]
+    control_summary["control_predicted_lesion_rate"] = safe_divide(
+        float(control_summary["num_pred_positive_cases"]),
+        float(control_summary["num_cases"]),
+        both_empty_value=0.0,
+    )
+
+    paper_rows, paper_detected_only_rows = build_paper_summary_rows(
+        fcd_summary,
+        control_summary,
+        fcd_positive_dice_summary,
+        control_positive_dice_summary,
+    )
+
+    error_case_rows = [
+        row for row in rows if (row["group"] == "FCD" and float(row["dice"]) == 0.0)
+        or (row["group"] == "control" and float(row["pred_nonempty"]) == 1.0)
+    ]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    per_case_csv = output_dir / "segmentation_metrics_per_case.csv"
+    fcd_per_case_csv = output_dir / "segmentation_metrics_per_case_fcd.csv"
+    control_per_case_csv = output_dir / "segmentation_metrics_per_case_control.csv"
+    per_fold_csv = output_dir / "segmentation_metrics_per_fold.csv"
+    positive_dice_csv = output_dir / "segmentation_metrics_dice_gt_0_summary.csv"
+    paper_summary_csv = output_dir / "segmentation_metrics_paper_summary.csv"
+    paper_detected_only_csv = output_dir / "segmentation_metrics_paper_summary_detected_only.csv"
+    error_cases_csv = output_dir / "segmentation_metrics_paper_error_cases.csv"
+    summary_json = output_dir / "segmentation_metrics_summary.json"
+
+    common_fieldnames = list(rows[0].keys())
+    _write_csv(per_case_csv, rows, common_fieldnames)
+    _write_csv(fcd_per_case_csv, fcd_rows, common_fieldnames)
+    _write_csv(control_per_case_csv, control_rows, common_fieldnames)
+    _write_csv(per_fold_csv, fold_summaries + [fcd_summary, control_summary, overall_summary], list((fold_summaries + [fcd_summary, control_summary, overall_summary])[0].keys()))
+    _write_csv(
+        positive_dice_csv,
+        fold_positive_dice_summaries + [fcd_positive_dice_summary, control_positive_dice_summary, overall_positive_dice_summary],
+        list((fold_positive_dice_summaries + [fcd_positive_dice_summary, control_positive_dice_summary, overall_positive_dice_summary])[0].keys()),
+    )
+    _write_csv(paper_summary_csv, paper_rows, list(paper_rows[0].keys()))
+    _write_csv(paper_detected_only_csv, paper_detected_only_rows, list(paper_detected_only_rows[0].keys()))
+    if error_case_rows:
+        _write_csv(error_cases_csv, error_case_rows, common_fieldnames)
+    else:
+        _write_csv(error_cases_csv, [], common_fieldnames)
+
+    summary_json.write_text(
+        json.dumps(
             {
-                "fold": fold_dir.name,
-                "metrics": _aggregate_rows(fold_rows),
-            }
+                "run_dir": str(run_dir),
+                "data_root": str(data_root),
+                "folds": fold_summaries,
+                "folds_dice_gt_0": fold_positive_dice_summaries,
+                "fcd_summary": fcd_summary,
+                "control_summary": control_summary,
+                "fcd_summary_dice_gt_0": fcd_positive_dice_summary,
+                "control_summary_dice_gt_0": control_positive_dice_summary,
+                "overall_dice_gt_0": overall_positive_dice_summary,
+                "overall": overall_summary,
+            },
+            indent=2,
         )
+        + "\n"
+    )
 
-    if not per_subject_rows:
-        raise SystemExit(f"No predictions were analyzed under {run_dir}")
-
-    csv_path = output_dir / "per_subject_metrics.csv"
-    fieldnames = [
-        "fold",
-        "subject_id",
-        "dataset",
-        "cohort_role",
-        "prediction_path",
-        "label_path",
-        "pred_voxels",
-        "label_voxels",
-        "is_lesion_positive",
-        "is_control",
-        "is_missed_fcd",
-        "is_fp_control",
-        *METRIC_NAMES,
-    ]
-    with csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(per_subject_rows)
-
-    paper_summary_rows = [_summary_row(str(fold_summary["fold"]), [row for row in per_subject_rows if row["fold"] == fold_summary["fold"]]) for fold_summary in fold_summaries]
-    paper_summary_rows.append(_summary_row("overall", per_subject_rows))
-    paper_csv_path = output_dir / "foldwise_overall_metrics.csv"
-    paper_fieldnames = [
-        "split",
-        "num_subjects",
-        "num_lesion_positive",
-        "num_controls",
-        "num_missed_fcd",
-        "num_fp_controls",
-    ]
-    for metric_name in METRIC_NAMES:
-        paper_fieldnames.extend([f"{metric_name}_mean", f"{metric_name}_std"])
-    with paper_csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=paper_fieldnames)
-        writer.writeheader()
-        writer.writerows(paper_summary_rows)
-
-    failure_csv_path = output_dir / "paper_error_cases.csv"
-    failure_fieldnames = [
-        "fold",
-        "subject_id",
-        "dataset",
-        "cohort_role",
-        "pred_voxels",
-        "label_voxels",
-        "is_missed_fcd",
-        "is_fp_control",
-        "dice",
-        "hd95",
-        "prediction_path",
-        "label_path",
-    ]
-    failure_rows = [
-        _select_fields(row, failure_fieldnames)
-        for row in per_subject_rows
-        if bool(row["is_missed_fcd"]) or bool(row["is_fp_control"])
-    ]
-    with failure_csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=failure_fieldnames)
-        writer.writeheader()
-        writer.writerows(failure_rows)
-
-    summary = {
-        "run_dir": str(run_dir),
-        "data_root": str(data_root),
-        "num_subjects": len(per_subject_rows),
-        "aggregate_metrics": _aggregate_rows(per_subject_rows),
-        "num_lesion_positive": sum(1 for row in per_subject_rows if bool(row["is_lesion_positive"])),
-        "num_controls": sum(1 for row in per_subject_rows if bool(row["is_control"])),
-        "num_missed_fcd": sum(1 for row in per_subject_rows if bool(row["is_missed_fcd"])),
-        "num_fp_controls": sum(1 for row in per_subject_rows if bool(row["is_fp_control"])),
-        "folds": fold_summaries,
-    }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"Wrote per-subject metrics to {csv_path}")
-    print(f"Wrote fold-wise and overall metrics to {paper_csv_path}")
-    print(f"Wrote missed-FCD / FP-control cases to {failure_csv_path}")
-    print(f"Wrote aggregate summary to {output_dir / 'summary.json'}")
+    print(f"Wrote per-case metrics to {per_case_csv}")
+    print(f"Wrote FCD per-case metrics to {fcd_per_case_csv}")
+    print(f"Wrote control per-case metrics to {control_per_case_csv}")
+    print(f"Wrote per-fold metrics to {per_fold_csv}")
+    print(f"Wrote Dice>0 summary metrics to {positive_dice_csv}")
+    print(f"Wrote paper summary metrics to {paper_summary_csv}")
+    print(f"Wrote paper detected-only metrics to {paper_detected_only_csv}")
+    print(f"Wrote paper error cases to {error_cases_csv}")
+    print(f"Wrote summary JSON to {summary_json}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

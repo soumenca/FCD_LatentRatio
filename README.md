@@ -306,10 +306,15 @@ python code/scripts/analyze_predictions.py \
 
 This writes:
 
-- `prediction_analysis/per_subject_metrics.csv`
-- `prediction_analysis/foldwise_overall_metrics.csv`
-- `prediction_analysis/paper_error_cases.csv`
-- `prediction_analysis/summary.json`
+- `prediction_analysis/segmentation_metrics_per_case.csv`
+- `prediction_analysis/segmentation_metrics_per_case_fcd.csv`
+- `prediction_analysis/segmentation_metrics_per_case_control.csv`
+- `prediction_analysis/segmentation_metrics_per_fold.csv`
+- `prediction_analysis/segmentation_metrics_dice_gt_0_summary.csv`
+- `prediction_analysis/segmentation_metrics_paper_summary.csv`
+- `prediction_analysis/segmentation_metrics_paper_summary_detected_only.csv`
+- `prediction_analysis/segmentation_metrics_paper_error_cases.csv`
+- `prediction_analysis/segmentation_metrics_summary.json`
 
 You can also point it at a different dataset root if needed:
 
@@ -317,6 +322,13 @@ You can also point it at a different dataset root if needed:
 python code/scripts/analyze_predictions.py \
   --run-dir /path/to/run_dir \
   --data-root /path/to/dataset
+```
+
+If you want the previous lightweight analyzer behavior, it is still available as:
+
+```bash
+python code/scripts/analyze_predictions_legacy.py \
+  --run-dir /path/to/run_dir
 ```
 
 ### Notes
