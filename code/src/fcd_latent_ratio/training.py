@@ -22,7 +22,7 @@ from .data import (
     split_subjects,
     zscore_inside_mask,
 )
-from .losses import DiceBCELoss
+from .losses import build_loss
 from .metrics import (
     dice_score_from_logits,
     hd95_score_from_logits,
@@ -114,6 +114,58 @@ def _load_or_create_split_plan(
                     f"Split file {split_file} references subject_ids not present in current dataset for {key}: {missing[:5]}"
                 )
     return plan
+
+
+def _format_run_token(value: object) -> str:
+    text = str(value).strip().lower()
+    safe_chars: list[str] = []
+    for char in text:
+        if char.isalnum() or char in {"_", "-"}:
+            safe_chars.append(char)
+        elif char == ".":
+            safe_chars.append("p")
+    return "".join(safe_chars).strip("_-") or "na"
+
+
+def _build_run_name(config: dict) -> str:
+    experiment_name = _format_run_token(config["experiment_name"])
+    epochs = int(config.get("epochs", 80))
+    loss_config = config.get("loss", {}) or {}
+    loss_name = _format_run_token(loss_config.get("name", "dice_bce"))
+
+    loss_alias_map = {
+        "dice_bce": "db",
+        "focal_tversky": "ft",
+        "focal_tversky_focal": "ftf",
+        "ftl_focal": "ftf",
+        "focal_tversky_combo": "ftf",
+    }
+    loss_alias = loss_alias_map.get(loss_name, loss_name)
+
+    tokens = [experiment_name, loss_alias]
+    if loss_alias == "db":
+        bce_weight = float(loss_config.get("bce_weight", 0.5))
+        if abs(bce_weight - 0.5) > 1e-8:
+            tokens.append(f"bw{_format_run_token(bce_weight)}")
+    elif loss_alias in {"ft", "ftf"}:
+        alpha = float(loss_config.get("alpha", 0.7))
+        beta = float(loss_config.get("beta", 0.3))
+        gamma = float(loss_config.get("gamma", 1.33))
+        if (alpha, beta, gamma) != (0.7, 0.3, 1.33):
+            tokens.append(f"a{_format_run_token(alpha)}")
+            tokens.append(f"b{_format_run_token(beta)}")
+            tokens.append(f"g{_format_run_token(gamma)}")
+        if loss_alias == "ftf":
+            focal_alpha = float(loss_config.get("focal_alpha", 0.25))
+            focal_gamma = float(loss_config.get("focal_gamma", 2.0))
+            if (focal_alpha, focal_gamma) != (0.25, 2.0):
+                tokens.append(f"fa{_format_run_token(focal_alpha)}")
+                tokens.append(f"fg{_format_run_token(focal_gamma)}")
+    selected_fold_index = config.get("fold_index")
+    if selected_fold_index is not None:
+        tokens.append(f"f{int(selected_fold_index) + 1:02d}")
+    tokens.append(f"e{epochs}")
+    return "__".join(tokens)
 
 
 def seed_everything(seed: int) -> None:
@@ -431,7 +483,7 @@ def _run_fold(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(**config["model"]).to(device)
-    criterion = DiceBCELoss()
+    criterion = build_loss(config.get("loss"))
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(config.get("learning_rate", 1e-4)),
@@ -517,8 +569,7 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         data_root = repo_root / data_root
     dataset_format = config.get("dataset_format", "subject_dirs")
     experiment_name = config["experiment_name"]
-    epochs = int(config.get("epochs", 80))
-    run_name = f"{experiment_name}_{epochs}"
+    run_name = _build_run_name(config)
     output_root = Path(config.get("output_root", "data/outputs"))
     if not output_root.is_absolute():
         output_root = repo_root / output_root

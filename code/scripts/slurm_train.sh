@@ -25,6 +25,16 @@ OUTPUT_ROOT_OVERRIDE="${OUTPUT_ROOT_OVERRIDE:-$REPO_ROOT/data/outputs}"
 VENV_DIR="${VENV_DIR:-$REPO_ROOT/.venv}"
 FOLD_INDEX_OVERRIDE="${FOLD_INDEX_OVERRIDE:-${SLURM_ARRAY_TASK_ID:-}}"
 EPOCHS_OVERRIDE="${EPOCHS_OVERRIDE:-}"
+LOSS_NAME_OVERRIDE="${LOSS_NAME_OVERRIDE:-}"
+LOSS_BCE_WEIGHT_OVERRIDE="${LOSS_BCE_WEIGHT_OVERRIDE:-}"
+LOSS_ALPHA_OVERRIDE="${LOSS_ALPHA_OVERRIDE:-}"
+LOSS_BETA_OVERRIDE="${LOSS_BETA_OVERRIDE:-}"
+LOSS_GAMMA_OVERRIDE="${LOSS_GAMMA_OVERRIDE:-}"
+LOSS_SMOOTH_OVERRIDE="${LOSS_SMOOTH_OVERRIDE:-}"
+LOSS_FOCAL_ALPHA_OVERRIDE="${LOSS_FOCAL_ALPHA_OVERRIDE:-}"
+LOSS_FOCAL_GAMMA_OVERRIDE="${LOSS_FOCAL_GAMMA_OVERRIDE:-}"
+LOSS_FOCAL_WEIGHT_OVERRIDE="${LOSS_FOCAL_WEIGHT_OVERRIDE:-}"
+LOSS_TVERSKY_WEIGHT_OVERRIDE="${LOSS_TVERSKY_WEIGHT_OVERRIDE:-}"
 
 usage() {
   cat <<EOF
@@ -44,6 +54,16 @@ Options:
   --modules "A B C"     Modules to load before running
   --epochs N            Override epochs
   --fold-index N        Override fold index; defaults to SLURM_ARRAY_TASK_ID
+  --loss-name NAME      Override loss: dice_bce, focal_tversky, focal_tversky_focal
+  --loss-bce-weight X   Override BCE weight for dice_bce
+  --loss-alpha X        Override Tversky alpha
+  --loss-beta X         Override Tversky beta
+  --loss-gamma X        Override Focal Tversky gamma
+  --loss-smooth X       Override Tversky smoothing term
+  --loss-focal-alpha X  Override focal alpha for focal_tversky_focal
+  --loss-focal-gamma X  Override focal gamma for focal_tversky_focal
+  --loss-focal-weight X Override focal component weight for focal_tversky_focal
+  --loss-tversky-weight X Override Tversky component weight for focal_tversky_focal
   --help                Show this help
 EOF
 }
@@ -90,6 +110,46 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fold-index)
       FOLD_INDEX_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-name)
+      LOSS_NAME_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-bce-weight)
+      LOSS_BCE_WEIGHT_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-alpha)
+      LOSS_ALPHA_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-beta)
+      LOSS_BETA_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-gamma)
+      LOSS_GAMMA_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-smooth)
+      LOSS_SMOOTH_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-focal-alpha)
+      LOSS_FOCAL_ALPHA_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-focal-gamma)
+      LOSS_FOCAL_GAMMA_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-focal-weight)
+      LOSS_FOCAL_WEIGHT_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --loss-tversky-weight)
+      LOSS_TVERSKY_WEIGHT_OVERRIDE="${2:-}"
       shift 2
       ;;
     --help)
@@ -144,6 +204,36 @@ if [[ -n "$EPOCHS_OVERRIDE" ]]; then
 fi
 if [[ -n "$FOLD_INDEX_OVERRIDE" ]]; then
   CMD+=(--fold-index "$FOLD_INDEX_OVERRIDE")
+fi
+if [[ -n "$LOSS_NAME_OVERRIDE" ]]; then
+  CMD+=(--loss-name "$LOSS_NAME_OVERRIDE")
+fi
+if [[ -n "$LOSS_BCE_WEIGHT_OVERRIDE" ]]; then
+  CMD+=(--loss-bce-weight "$LOSS_BCE_WEIGHT_OVERRIDE")
+fi
+if [[ -n "$LOSS_ALPHA_OVERRIDE" ]]; then
+  CMD+=(--loss-alpha "$LOSS_ALPHA_OVERRIDE")
+fi
+if [[ -n "$LOSS_BETA_OVERRIDE" ]]; then
+  CMD+=(--loss-beta "$LOSS_BETA_OVERRIDE")
+fi
+if [[ -n "$LOSS_GAMMA_OVERRIDE" ]]; then
+  CMD+=(--loss-gamma "$LOSS_GAMMA_OVERRIDE")
+fi
+if [[ -n "$LOSS_SMOOTH_OVERRIDE" ]]; then
+  CMD+=(--loss-smooth "$LOSS_SMOOTH_OVERRIDE")
+fi
+if [[ -n "$LOSS_FOCAL_ALPHA_OVERRIDE" ]]; then
+  CMD+=(--loss-focal-alpha "$LOSS_FOCAL_ALPHA_OVERRIDE")
+fi
+if [[ -n "$LOSS_FOCAL_GAMMA_OVERRIDE" ]]; then
+  CMD+=(--loss-focal-gamma "$LOSS_FOCAL_GAMMA_OVERRIDE")
+fi
+if [[ -n "$LOSS_FOCAL_WEIGHT_OVERRIDE" ]]; then
+  CMD+=(--loss-focal-weight "$LOSS_FOCAL_WEIGHT_OVERRIDE")
+fi
+if [[ -n "$LOSS_TVERSKY_WEIGHT_OVERRIDE" ]]; then
+  CMD+=(--loss-tversky-weight "$LOSS_TVERSKY_WEIGHT_OVERRIDE")
 fi
 
 echo "Running on host: $(hostname)"

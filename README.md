@@ -127,7 +127,24 @@ python code/scripts/train_experiment.py \
   --epochs 120
 ```
 
-All outputs are written under `data/outputs/<experiment_name>_<epochs>/`.
+The default loss remains `dice_bce`, but you can switch losses at run time:
+
+```bash
+python code/scripts/train_experiment.py \
+  --config code/configs/exp_b_cril_unet.json \
+  --loss-name focal_tversky_focal \
+  --loss-alpha 0.7 \
+  --loss-beta 0.3 \
+  --loss-gamma 1.33
+```
+
+Available loss names:
+
+- `dice_bce`: current default, with optional `--loss-bce-weight`
+- `focal_tversky`: pure Focal Tversky loss
+- `focal_tversky_focal`: hybrid focal voxel loss + Focal Tversky loss
+
+All outputs are written under a compact run directory such as `data/outputs/exp_b_cril_unet__ftf__e300/`.
 
 For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesTr/`, `labelsTr/`, and optionally `dataset.json`. The included configs already default to:
 
@@ -143,7 +160,7 @@ For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesT
 
 If you want to use the older subject-folder layout instead, change `dataset_format` to `"subject_dirs"`.
 
-Each run now trains one model per fold under `data/outputs/<experiment_name>_<epochs>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` is written to `data/outputs/exp_a_unet_e5_25/`. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<experiment_name>_<epochs>/summary.json` stores the aggregated cross-validation metrics.
+Each run now trains one model per fold under `data/outputs/<run_name>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` with the default loss is written to `data/outputs/exp_a_unet_e5__db__e25/`. A hybrid-loss single-fold run might look like `data/outputs/exp_b_cril_unet__ftf__f03__e300/`. Extra loss hyperparameters are only appended when you override them away from the defaults. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<run_name>/summary.json` stores the aggregated cross-validation metrics.
 
 All bundled experiments now use the same shared 5-fold split file by default:
 
@@ -251,6 +268,19 @@ sbatch code/scripts/slurm_train.sh \
   --epochs 120
 ```
 
+You can switch the loss during submission as well:
+
+```bash
+sbatch code/scripts/slurm_train.sh \
+  --exp b \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs \
+  --loss-name focal_tversky_focal \
+  --loss-alpha 0.7 \
+  --loss-beta 0.3 \
+  --loss-gamma 1.33
+```
+
 ### 4. Check logs
 
 ```bash
@@ -260,7 +290,7 @@ tail -f logs/UNet_CV_fold0_<jobid>.out
 ### 5. Find outputs
 
 ```bash
-data/outputs/<experiment_name>_<epochs>/
+data/outputs/<run_name>/
 ```
 
 If you use `OUTPUT_ROOT_OVERRIDE`, outputs go there instead.
