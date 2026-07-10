@@ -94,6 +94,14 @@ def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str])
             writer.writerow({fieldname: row.get(fieldname) for fieldname in fieldnames})
 
 
+def _subject_group(subject_id: str) -> str:
+    if subject_id.startswith("FCD_"):
+        return "FCD"
+    if subject_id.startswith("CON_"):
+        return "HC"
+    raise ValueError(f"Unsupported subject ID prefix for grouping: {subject_id}")
+
+
 def _metric_summary(rows: list[dict[str, object]], split_name: str) -> dict[str, object]:
     summary: dict[str, object] = {"split": split_name, "num_subjects": len(rows)}
     for metric_name in METRIC_NAMES:
@@ -184,7 +192,7 @@ def main() -> int:
             if pred_mask.shape != gt_mask.shape:
                 raise ValueError(f"Shape mismatch for {subject_id}: pred {pred_mask.shape} vs gt {gt_mask.shape}")
 
-            group = "HC" if subject.cohort_role == "control" else "FCD"
+            group = _subject_group(subject_id)
             row = {
                 "fold": fold_dir.name,
                 "subject_id": subject_id,

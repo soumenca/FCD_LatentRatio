@@ -98,6 +98,14 @@ def _select_fields(row: dict[str, object], fieldnames: list[str]) -> dict[str, o
     return {fieldname: row.get(fieldname) for fieldname in fieldnames}
 
 
+def _subject_group(subject_id: str) -> str:
+    if subject_id.startswith("FCD_"):
+        return "FCD"
+    if subject_id.startswith("CON_"):
+        return "HC"
+    raise ValueError(f"Unsupported subject ID prefix for grouping: {subject_id}")
+
+
 def main() -> None:
     args = parse_args()
     run_dir = args.run_dir.resolve()
@@ -183,7 +191,7 @@ def main() -> None:
                 "specificity": specificity_score_from_masks(pred_mask, target_mask),
             }
             row["is_lesion_positive"] = row["label_voxels"] > 0
-            row["is_control"] = subject.cohort_role == "control"
+            row["is_control"] = _subject_group(subject_id) == "HC"
             row["is_missed_fcd"] = row["is_lesion_positive"] and row["pred_voxels"] == 0
             row["is_fp_control"] = row["is_control"] and row["pred_voxels"] > 0
             per_subject_rows.append(row)
