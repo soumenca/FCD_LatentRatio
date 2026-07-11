@@ -160,7 +160,7 @@ For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesT
 
 If you want to use the older subject-folder layout instead, change `dataset_format` to `"subject_dirs"`.
 
-Each run now trains one model per fold under `data/outputs/<run_name>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` with the default loss is written to `data/outputs/exp_a_unet_e5__db__e25/`. A hybrid-loss single-fold run might look like `data/outputs/exp_b_cril_unet__ftf__f03__e300/`. Extra loss hyperparameters are only appended when you override them away from the defaults. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<run_name>/summary.json` stores the aggregated cross-validation metrics.
+Each run now trains one model per fold under `data/outputs/<run_name>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` with the default loss is written to `data/outputs/exp_a_db_e25/`. If you launch individual folds from SLURM, they still write back into that same shared experiment folder and use `fold_01`, `fold_02`, and so on as subdirectories. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<run_name>/summary.json` stores the aggregated cross-validation metrics.
 
 All bundled experiments now use the same shared 5-fold split file by default:
 
@@ -301,7 +301,7 @@ After a run finishes, you can recompute segmentation metrics for every saved pre
 
 ```bash
 python code/scripts/analyze_predictions.py \
-  --run-dir data/outputs/exp_a_unet_e5__db__e300
+  --run-dir data/outputs/exp_a_db_e300
 ```
 
 This writes:
