@@ -42,11 +42,14 @@ Usage:
   sbatch code/scripts/slurm_train.sh [options]
 
 Options:
-  --exp {a|b|c|d}       Shortcut for bundled configs:
+  --exp {a|b|d|e|f|g|h} Shortcut for bundled configs:
                         a -> exp_a_unet_e5.json
                         b -> exp_b_cril_unet.json
-                        c -> exp_c_unet_with_ratios.json
                         d -> exp_d_cril_attn_unet.json
+                        e -> exp_e_resunet_e5.json
+                        f -> exp_f_cril_resunet.json
+                        g -> exp_g_segresnet.json
+                        h -> exp_h_cril_segresnet.json
   --config PATH         Explicit config path
   --data-root PATH      Override dataset root
   --output-root PATH    Override output root
@@ -74,8 +77,11 @@ while [[ $# -gt 0 ]]; do
       case "${2:-}" in
         a) CONFIG_PATH="$REPO_ROOT/code/configs/exp_a_unet_e5.json" ;;
         b) CONFIG_PATH="$REPO_ROOT/code/configs/exp_b_cril_unet.json" ;;
-        c) CONFIG_PATH="$REPO_ROOT/code/configs/exp_c_unet_with_ratios.json" ;;
         d) CONFIG_PATH="$REPO_ROOT/code/configs/exp_d_cril_attn_unet.json" ;;
+        e) CONFIG_PATH="$REPO_ROOT/code/configs/exp_e_resunet_e5.json" ;;
+        f) CONFIG_PATH="$REPO_ROOT/code/configs/exp_f_cril_resunet.json" ;;
+        g) CONFIG_PATH="$REPO_ROOT/code/configs/exp_g_segresnet.json" ;;
+        h) CONFIG_PATH="$REPO_ROOT/code/configs/exp_h_cril_segresnet.json" ;;
         *)
           echo "Unknown experiment for --exp: ${2:-<missing>}" >&2
           usage

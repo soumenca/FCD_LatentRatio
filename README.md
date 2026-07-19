@@ -4,8 +4,11 @@ This repository contains a minimal experiment scaffold for the 2-week ablation w
 
 - `U-Net-E5`: plain 3D U-Net with `T1w + FLAIR`
 - `CRIL-U-Net`: 3D U-Net with a Compact Ratio-Interaction Learning module
-- `U-Net + ratios`: plain 3D U-Net with manual ratio-style input channels
 - `CRIL-Attn-U-Net`: CRIL with a lightweight pooled-attention block before the 3D U-Net
+- `ResU-Net-E5`: residual 3D U-Net with `T1w + FLAIR`
+- `CRIL-ResU-Net`: residual 3D U-Net driven by CRIL latent features
+- `SegResNet`: MONAI `SegResNet` baseline with `T1w + FLAIR`
+- `CRIL-SegResNet`: MONAI `SegResNet` driven by CRIL latent features
 
 ## Core idea
 
@@ -43,24 +46,6 @@ data/
 
 Default channel mapping is `_0000 -> T1w` and `_0001 -> FLAIR`. If `dataset.json` contains `channel_names`, the loader will use that mapping automatically when possible.
 
-For manual-ratio experiments, a 4-channel nnU-Net dataset is also supported:
-
-```text
-data/
-  dataset.json
-  imagesTr/
-    sub-001_0000.nii.gz   # T1w
-    sub-001_0001.nii.gz   # FLAIR
-    sub-001_0002.nii.gz   # T1w / FLAIR
-    sub-001_0003.nii.gz   # FLAIR / T1w
-  labelsTr/
-    sub-001.nii.gz
-```
-
-`exp_c` can now work with either:
-- a 2-channel dataset containing only `T1w` and `FLAIR`, in which case the code computes `T1w / FLAIR` and `FLAIR / T1w` internally
-- a 4-channel dataset containing precomputed ratio channels, in which case the loader reads `_0002` and `_0003` directly
-
 ### Subject-folder format
 
 The original subject-space layout is still supported:
@@ -90,8 +75,23 @@ If `subject_manifest.json` is missing, the loader infers metadata from the folde
 
 - [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
 - [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
-- [code/configs/exp_c_unet_with_ratios.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_c_unet_with_ratios.json): manual bidirectional-ratio benchmark
 - [code/configs/exp_d_cril_attn_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_cril_attn_unet.json): CRIL-Attn-U-Net, compact ratio-interaction learning with bottleneck attention
+- [code/configs/exp_e_resunet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_e_resunet_e5.json): residual 2-channel 3D U-Net baseline
+- [code/configs/exp_f_cril_resunet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_f_cril_resunet.json): CRIL with a residual 3D U-Net backbone
+- [code/configs/exp_g_segresnet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_g_segresnet.json): MONAI SegResNet 2-channel baseline
+- [code/configs/exp_h_cril_segresnet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_h_cril_segresnet.json): CRIL with a MONAI SegResNet backbone
+
+## Experiment comparison
+
+| Exp | Model Name | Backbone | CRIL | Attention | Notes |
+|---|---|---|---|---|---|
+| `exp_a` | U-Net-E5 | Plain 5-stage 3D U-Net | No | No | simplest baseline |
+| `exp_b` | CRIL-U-Net | Plain 5-stage 3D U-Net | Yes | No | tests CRIL on vanilla U-Net |
+| `exp_d` | CRIL-Attn-U-Net | Plain 5-stage 3D U-Net | Yes | Yes | CRIL plus bottleneck attention |
+| `exp_e` | ResU-Net-E5 | Residual 5-stage 3D U-Net | No | No | same U-Net layout idea, but residual blocks |
+| `exp_f` | CRIL-ResU-Net | Residual 5-stage 3D U-Net | Yes | No | tests CRIL on residual U-Net |
+| `exp_g` | SegResNet | MONAI SegResNet | No | No | different family from U-Net |
+| `exp_h` | CRIL-SegResNet | MONAI SegResNet | Yes | No | tests CRIL on SegResNet |
 
 ## Quick start
 
@@ -106,8 +106,11 @@ Then run:
 ```bash
 python code/scripts/train_experiment.py --config code/configs/exp_a_unet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_b_cril_unet.json
-python code/scripts/train_experiment.py --config code/configs/exp_c_unet_with_ratios.json
 python code/scripts/train_experiment.py --config code/configs/exp_d_cril_attn_unet.json
+python code/scripts/train_experiment.py --config code/configs/exp_e_resunet_e5.json
+python code/scripts/train_experiment.py --config code/configs/exp_f_cril_resunet.json
+python code/scripts/train_experiment.py --config code/configs/exp_g_segresnet.json
+python code/scripts/train_experiment.py --config code/configs/exp_h_cril_segresnet.json
 ```
 
 You can override dataset and output locations at launch time:
@@ -144,7 +147,7 @@ Available loss names:
 - `focal_tversky`: pure Focal Tversky loss
 - `focal_tversky_focal`: hybrid focal voxel loss + Focal Tversky loss
 
-All outputs are written under a compact run directory such as `data/outputs/exp_b_cril_unet__ftf__e300/`.
+All outputs are written under a compact run directory such as `data/outputs/exp_b_cril_unet__ftf__e500/`.
 
 For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesTr/`, `labelsTr/`, and optionally `dataset.json`. The included configs already default to:
 
@@ -152,7 +155,7 @@ For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesT
 {
   "dataset_format": "nnunetv2",
   "num_folds": 5,
-  "epochs": 300,
+  "epochs": 500,
   "t1_channel_index": 0,
   "flair_channel_index": 1
 }
@@ -168,7 +171,7 @@ All bundled experiments now use the same shared 5-fold split file by default:
 data/splits/shared_5fold_split.json
 ```
 
-The first experiment run will create that file if it does not exist. Later runs of `exp_a`, `exp_b`, `exp_c`, and `exp_d` will reuse it so all experiments evaluate on the exact same folds.
+The first experiment run will create that file if it does not exist. Later runs of `exp_a`, `exp_b`, `exp_d`, `exp_e`, `exp_f`, `exp_g`, and `exp_h` will reuse it so all experiments evaluate on the exact same folds.
 
 Reported segmentation metrics now include Dice, HD95, IoU, precision, recall, sensitivity, and specificity.
 
@@ -234,19 +237,6 @@ sbatch code/scripts/slurm_train.sh \
   --output-root /path/to/scratch/FCD_LatentRatio_outputs
 ```
 
-`exp_c`:
-- with `Dataset1`, ratios are computed internally
-- with `Dataset2`, `_0002` and `_0003` are read directly
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp c \
-  --data-root /path/to/Dataset2 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
 `exp_d` with `T1w + FLAIR`:
 
 ```bash
@@ -254,6 +244,50 @@ cd /path/to/FCD_LatentRatio
 sbatch code/scripts/slurm_train.sh \
   --modules "python/3.11 cuda/12.1" \
   --exp d \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_e` with `T1w + FLAIR`:
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp e \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_f` with `T1w + FLAIR`:
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp f \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_g` with `T1w + FLAIR`:
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp g \
+  --data-root /path/to/Dataset1 \
+  --output-root /path/to/scratch/FCD_LatentRatio_outputs
+```
+
+`exp_h` with `T1w + FLAIR`:
+
+```bash
+cd /path/to/FCD_LatentRatio
+sbatch code/scripts/slurm_train.sh \
+  --modules "python/3.11 cuda/12.1" \
+  --exp h \
   --data-root /path/to/Dataset1 \
   --output-root /path/to/scratch/FCD_LatentRatio_outputs
 ```
@@ -301,7 +335,7 @@ After a run finishes, you can recompute segmentation metrics for every saved pre
 
 ```bash
 python code/scripts/analyze_predictions.py \
-  --run-dir data/outputs/exp_a_db_e300
+  --run-dir data/outputs/exp_a_db_e500
 ```
 
 This writes:

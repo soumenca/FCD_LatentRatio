@@ -1,19 +1,17 @@
 {
-  "experiment_name": "exp_c_unet_with_ratios",
+  "experiment_name": "exp_h_cril_segresnet",
   "data_root": "data",
   "split_file": "data/splits/shared_5fold_split.json",
   "dataset_format": "nnunetv2",
   "include_controls": true,
   "t1_channel_index": 0,
   "flair_channel_index": 1,
-  "t1_flair_ratio_channel_index": 2,
-  "flair_t1_ratio_channel_index": 3,
   "seed": 42,
   "num_folds": 5,
   "val_ratio": 0.15,
   "batch_size": 2,
   "num_workers": 0,
-  "epochs": 300,
+  "epochs": 500,
   "learning_rate": 0.0001,
   "weight_decay": 0.00001,
   "loss": {
@@ -23,10 +21,13 @@
   "positive_patch_prob": 0.7,
   "patch_size": [96, 96, 96],
   "model": {
-    "name": "unet_e5",
-    "in_channels": 4,
+    "name": "cril_segresnet",
+    "in_channels": 2,
     "out_channels": 1,
-    "encoder_channels": [32, 64, 128, 256, 512]
+    "init_filters": 16,
+    "stage_blocks": [1, 2, 2, 4],
+    "cril_hidden_channels": 16,
+    "cril_latent_channels": 4
   },
-  "input_mode": "t1_flair_ratio"
+  "input_mode": "t1_flair"
 }
