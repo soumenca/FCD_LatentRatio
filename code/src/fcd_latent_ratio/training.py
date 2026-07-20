@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import random
 from statistics import mean, pstdev
@@ -160,6 +161,7 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.benchmark = True
 
 
 def make_loader(
@@ -170,14 +172,25 @@ def make_loader(
     positive_patch_prob: float,
     num_workers: int,
     shuffle: bool,
+    cache_subject_arrays: bool,
 ) -> DataLoader:
     dataset = Patch3DSegmentationDataset(
         subjects=subjects,
         patch_size=patch_size,
         input_mode=input_mode,
         positive_patch_prob=positive_patch_prob,
+        cache_subject_arrays=cache_subject_arrays,
     )
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    loader_kwargs = {
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "num_workers": num_workers,
+        "pin_memory": torch.cuda.is_available(),
+    }
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = True
+        loader_kwargs["prefetch_factor"] = 2
+    return DataLoader(dataset, **loader_kwargs)
 
 
 def train_one_epoch(
@@ -186,18 +199,28 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: torch.nn.Module,
     device: torch.device,
+    scaler: torch.cuda.amp.GradScaler,
+    use_amp: bool,
+    non_blocking: bool,
 ) -> dict[str, float]:
     model.train()
     total_loss = 0.0
     steps = 0
     for batch in loader:
-        image = batch["image"].to(device=device, dtype=torch.float32)
-        label = batch["label"].to(device=device, dtype=torch.float32)
+        image = batch["image"].to(device=device, dtype=torch.float32, non_blocking=non_blocking)
+        label = batch["label"].to(device=device, dtype=torch.float32, non_blocking=non_blocking)
         optimizer.zero_grad(set_to_none=True)
-        logits = model(image)
-        loss = criterion(logits, label)
-        loss.backward()
-        optimizer.step()
+        autocast_context = (
+            torch.autocast(device_type="cuda", dtype=torch.float16)
+            if use_amp
+            else contextlib.nullcontext()
+        )
+        with autocast_context:
+            logits = model(image)
+            loss = criterion(logits, label)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         total_loss += float(loss.item())
         steps += 1
     return {"loss": total_loss / max(1, steps)}
@@ -209,6 +232,8 @@ def evaluate(
     loader: DataLoader,
     criterion: torch.nn.Module,
     device: torch.device,
+    use_amp: bool,
+    non_blocking: bool,
 ) -> dict[str, float]:
     model.eval()
     total_loss = 0.0
@@ -221,10 +246,16 @@ def evaluate(
     total_specificity = 0.0
     steps = 0
     for batch in loader:
-        image = batch["image"].to(device=device, dtype=torch.float32)
-        label = batch["label"].to(device=device, dtype=torch.float32)
-        logits = model(image)
-        loss = criterion(logits, label)
+        image = batch["image"].to(device=device, dtype=torch.float32, non_blocking=non_blocking)
+        label = batch["label"].to(device=device, dtype=torch.float32, non_blocking=non_blocking)
+        autocast_context = (
+            torch.autocast(device_type="cuda", dtype=torch.float16)
+            if use_amp
+            else contextlib.nullcontext()
+        )
+        with autocast_context:
+            logits = model(image)
+            loss = criterion(logits, label)
         total_loss += float(loss.item())
         total_dice += float(dice_score_from_logits(logits, label).item())
         total_hd95 += float(hd95_score_from_logits(logits, label).item())
@@ -318,6 +349,7 @@ def _predict_subject_mask(
     input_mode: str,
     patch_size: tuple[int, int, int],
     device: torch.device,
+    use_amp: bool,
     threshold: float = 0.5,
 ) -> np.ndarray:
     arrays = load_subject_arrays(subject)
@@ -342,7 +374,11 @@ def _predict_subject_mask(
         t1_flair_ratio=t1_flair_ratio,
         flair_t1_ratio=flair_t1_ratio,
     )
-    image_tensor = torch.from_numpy(image[None, ...]).to(device=device, dtype=torch.float32)
+    image_tensor = torch.from_numpy(image[None, ...]).to(
+        device=device,
+        dtype=torch.float32,
+        non_blocking=torch.cuda.is_available(),
+    )
 
     logits_sum = torch.zeros((1, 1, *target_shape), device=device, dtype=torch.float32)
     logits_count = torch.zeros_like(logits_sum)
@@ -361,7 +397,13 @@ def _predict_subject_mask(
                     y:y + patch_size[1],
                     x:x + patch_size[2],
                 ]
-                patch_logits = model(patch)
+                autocast_context = (
+                    torch.autocast(device_type="cuda", dtype=torch.float16)
+                    if use_amp
+                    else contextlib.nullcontext()
+                )
+                with autocast_context:
+                    patch_logits = model(patch)
                 logits_sum[
                     :,
                     :,
@@ -390,6 +432,7 @@ def _export_fold_masks(
     input_mode: str,
     patch_size: tuple[int, int, int],
     device: torch.device,
+    use_amp: bool,
 ) -> list[dict[str, str]]:
     validation_dir = fold_dir / "validation"
     validation_dir.mkdir(parents=True, exist_ok=True)
@@ -402,6 +445,7 @@ def _export_fold_masks(
             input_mode=input_mode,
             patch_size=patch_size,
             device=device,
+            use_amp=use_amp,
         )
         reference_path = subject.label_path if subject.label_path and subject.label_path.exists() else subject.t1_path
         if reference_path is None:
@@ -434,8 +478,9 @@ def _run_fold(
     patch_size = tuple(int(v) for v in config.get("patch_size", [96, 96, 96]))
     input_mode = config.get("input_mode", "t1_flair")
     batch_size = int(config.get("batch_size", 2))
-    num_workers = int(config.get("num_workers", 0))
+    num_workers = int(config.get("num_workers", 4))
     positive_patch_prob = float(config.get("positive_patch_prob", 0.7))
+    cache_subject_arrays = bool(config.get("cache_subject_arrays", True))
 
     fold_dir = output_dir / f"fold_{fold_index + 1:02d}"
     fold_dir.mkdir(parents=True, exist_ok=True)
@@ -448,6 +493,7 @@ def _run_fold(
         positive_patch_prob=positive_patch_prob,
         num_workers=num_workers,
         shuffle=True,
+        cache_subject_arrays=cache_subject_arrays,
     )
     val_loader = make_loader(
         val_subjects,
@@ -457,6 +503,7 @@ def _run_fold(
         positive_patch_prob=positive_patch_prob,
         num_workers=num_workers,
         shuffle=False,
+        cache_subject_arrays=cache_subject_arrays,
     )
     test_loader = make_loader(
         test_subjects,
@@ -466,11 +513,15 @@ def _run_fold(
         positive_patch_prob=positive_patch_prob,
         num_workers=num_workers,
         shuffle=False,
+        cache_subject_arrays=cache_subject_arrays,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(**config["model"]).to(device)
     criterion = build_loss(config.get("loss"))
+    use_amp = bool(config.get("use_amp", True)) and device.type == "cuda"
+    non_blocking = device.type == "cuda"
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(config.get("learning_rate", 1e-4)),
@@ -482,8 +533,28 @@ def _run_fold(
     best_checkpoint = fold_dir / "best_model.pt"
     epochs = int(config.get("epochs", 80))
     for epoch in range(1, epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device)
-        val_metrics = evaluate(model, val_loader, criterion, device) if val_subjects else {}
+        train_metrics = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            scaler=scaler,
+            use_amp=use_amp,
+            non_blocking=non_blocking,
+        )
+        val_metrics = (
+            evaluate(
+                model,
+                val_loader,
+                criterion,
+                device,
+                use_amp=use_amp,
+                non_blocking=non_blocking,
+            )
+            if val_subjects
+            else {}
+        )
         row = {"epoch": epoch, **{f"train_{k}": v for k, v in train_metrics.items()}}
         row.update({f"val_{k}": v for k, v in val_metrics.items()})
         history.append(row)
@@ -506,7 +577,18 @@ def _run_fold(
     checkpoint = torch.load(best_checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    test_metrics = evaluate(model, test_loader, criterion, device) if test_subjects else {}
+    test_metrics = (
+        evaluate(
+            model,
+            test_loader,
+            criterion,
+            device,
+            use_amp=use_amp,
+            non_blocking=non_blocking,
+        )
+        if test_subjects
+        else {}
+    )
     exported_fold_masks = _export_fold_masks(
         model=model,
         subjects=test_subjects,
@@ -514,6 +596,7 @@ def _run_fold(
         input_mode=input_mode,
         patch_size=patch_size,
         device=device,
+        use_amp=use_amp,
     )
     fold_summary = {
         "fold_index": fold_index + 1,

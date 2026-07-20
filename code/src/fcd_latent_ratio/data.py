@@ -374,18 +374,25 @@ class Patch3DSegmentationDataset(Dataset):
         patch_size: tuple[int, int, int],
         input_mode: str = "t1_flair",
         positive_patch_prob: float = 0.7,
+        cache_subject_arrays: bool = True,
     ) -> None:
         self.subjects = subjects
         self.patch_size = patch_size
         self.input_mode = input_mode
         self.positive_patch_prob = positive_patch_prob
+        self.cache_subject_arrays = cache_subject_arrays
+        self._array_cache: dict[str, dict[str, np.ndarray]] = {}
 
     def __len__(self) -> int:
         return len(self.subjects)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         subject = self.subjects[index]
-        arrays = load_subject_arrays(subject)
+        arrays = self._array_cache.get(subject.subject_id)
+        if arrays is None:
+            arrays = load_subject_arrays(subject)
+            if self.cache_subject_arrays:
+                self._array_cache[subject.subject_id] = arrays
         t1 = zscore_inside_mask(arrays["t1"], arrays["brain_mask"])
         flair = zscore_inside_mask(arrays["flair"], arrays["brain_mask"])
         t1_flair_ratio = arrays["t1_flair_ratio"]
