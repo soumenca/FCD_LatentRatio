@@ -96,10 +96,19 @@ class ResidualDecoderStage(nn.Module):
 
 
 class CompactRatioInteractionLearningModule(nn.Module):
-    def __init__(self, in_channels: int = 2, hidden_channels: int = 16, latent_channels: int = 4) -> None:
+    def __init__(
+        self,
+        in_channels: int = 2,
+        hidden_channels: int = 16,
+        latent_channels: int = 4,
+        ratio_eps: float = 1e-3,
+        ratio_clip: float = 10.0,
+    ) -> None:
         super().__init__()
         if in_channels != 2:
             raise ValueError("CRIL expects exactly 2 input channels: T1w and FLAIR.")
+        self.ratio_eps = float(ratio_eps)
+        self.ratio_clip = float(ratio_clip)
 
         self.local_branch = nn.Sequential(
             nn.Conv3d(2, hidden_channels, kernel_size=3, padding=1, bias=False),
@@ -128,10 +137,12 @@ class CompactRatioInteractionLearningModule(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         t1 = x[:, 0:1]
         flair = x[:, 1:2]
+        safe_flair = torch.where(torch.abs(flair) < self.ratio_eps, torch.full_like(flair, self.ratio_eps), flair)
+        safe_t1 = torch.where(torch.abs(t1) < self.ratio_eps, torch.full_like(t1, self.ratio_eps), t1)
         ratio_features = torch.cat(
             [
-                t1 / (torch.abs(flair) + 1e-6),
-                flair / (torch.abs(t1) + 1e-6),
+                torch.clamp(t1 / safe_flair, min=-self.ratio_clip, max=self.ratio_clip),
+                torch.clamp(flair / safe_t1, min=-self.ratio_clip, max=self.ratio_clip),
             ],
             dim=1,
         )

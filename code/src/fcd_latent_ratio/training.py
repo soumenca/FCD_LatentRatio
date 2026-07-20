@@ -218,6 +218,10 @@ def train_one_epoch(
         with autocast_context:
             logits = model(image)
             loss = criterion(logits, label)
+        if not torch.isfinite(logits).all():
+            raise RuntimeError("Non-finite logits encountered during training.")
+        if not torch.isfinite(loss):
+            raise RuntimeError("Non-finite loss encountered during training.")
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -256,6 +260,10 @@ def evaluate(
         with autocast_context:
             logits = model(image)
             loss = criterion(logits, label)
+        if not torch.isfinite(logits).all():
+            raise RuntimeError("Non-finite logits encountered during evaluation.")
+        if not torch.isfinite(loss):
+            raise RuntimeError("Non-finite loss encountered during evaluation.")
         total_loss += float(loss.item())
         total_dice += float(dice_score_from_logits(logits, label).item())
         total_hd95 += float(hd95_score_from_logits(logits, label).item())
