@@ -317,12 +317,16 @@ class CRILUNet3D(nn.Module):
         encoder_channels: tuple[int, int, int, int, int] | list[int] = (32, 64, 128, 256, 512),
         cril_hidden_channels: int = 16,
         cril_latent_channels: int = 4,
+        ratio_eps: float = 1e-3,
+        ratio_clip: float = 10.0,
     ) -> None:
         super().__init__()
         self.cril = CompactRatioInteractionLearningModule(
             in_channels=in_channels,
             hidden_channels=cril_hidden_channels,
             latent_channels=cril_latent_channels,
+            ratio_eps=ratio_eps,
+            ratio_clip=ratio_clip,
         )
         self.unet = UNet3D(
             in_channels=cril_latent_channels,
@@ -343,12 +347,16 @@ class CRILResidualUNet3D(nn.Module):
         encoder_channels: tuple[int, int, int, int, int] | list[int] = (32, 64, 128, 256, 512),
         cril_hidden_channels: int = 16,
         cril_latent_channels: int = 4,
+        ratio_eps: float = 1e-3,
+        ratio_clip: float = 10.0,
     ) -> None:
         super().__init__()
         self.cril = CompactRatioInteractionLearningModule(
             in_channels=in_channels,
             hidden_channels=cril_hidden_channels,
             latent_channels=cril_latent_channels,
+            ratio_eps=ratio_eps,
+            ratio_clip=ratio_clip,
         )
         self.unet = ResidualUNet3D(
             in_channels=cril_latent_channels,
@@ -371,12 +379,16 @@ class CRILSegResNet3D(nn.Module):
         stage_blocks_up: tuple[int, int, int] | list[int] = (1, 1, 1),
         cril_hidden_channels: int = 16,
         cril_latent_channels: int = 4,
+        ratio_eps: float = 1e-3,
+        ratio_clip: float = 10.0,
     ) -> None:
         super().__init__()
         self.cril = CompactRatioInteractionLearningModule(
             in_channels=in_channels,
             hidden_channels=cril_hidden_channels,
             latent_channels=cril_latent_channels,
+            ratio_eps=ratio_eps,
+            ratio_clip=ratio_clip,
         )
         self.segresnet = SegResNet3D(
             in_channels=cril_latent_channels,
@@ -399,6 +411,8 @@ class CRILAttnUNet3D(nn.Module):
         encoder_channels: tuple[int, int, int, int, int] | list[int] = (32, 64, 128, 256, 512),
         cril_hidden_channels: int = 16,
         cril_latent_channels: int = 4,
+        ratio_eps: float = 1e-3,
+        ratio_clip: float = 10.0,
         attention_embed_dim: int = 16,
         attention_num_heads: int = 4,
         attention_pooled_size: tuple[int, int, int] | list[int] = (6, 6, 6),
@@ -409,6 +423,8 @@ class CRILAttnUNet3D(nn.Module):
             in_channels=in_channels,
             hidden_channels=cril_hidden_channels,
             latent_channels=cril_latent_channels,
+            ratio_eps=ratio_eps,
+            ratio_clip=ratio_clip,
         )
         self.attention = LightweightBottleneckAttention3D(
             in_channels=cril_latent_channels,
