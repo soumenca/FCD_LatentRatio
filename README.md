@@ -75,7 +75,7 @@ If `subject_manifest.json` is missing, the loader infers metadata from the folde
 
 - [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
 - [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
-- [code/configs/exp_d_cril_attn_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_cril_attn_unet.json): CRIL-Attn-U-Net, compact ratio-interaction learning with bottleneck attention
+- [code/configs/exp_d_attn_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_attn_unet.json): attention U-Net with bottleneck attention
 - [code/configs/exp_e_resunet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_e_resunet_e5.json): residual 2-channel 3D U-Net baseline
 - [code/configs/exp_f_cril_resunet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_f_cril_resunet.json): CRIL with a residual 3D U-Net backbone
 - [code/configs/exp_g_segresnet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_g_segresnet.json): MONAI SegResNet 2-channel baseline
@@ -106,7 +106,7 @@ Then run:
 ```bash
 python code/scripts/train_experiment.py --config code/configs/exp_a_unet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_b_cril_unet.json
-python code/scripts/train_experiment.py --config code/configs/exp_d_cril_attn_unet.json
+python code/scripts/train_experiment.py --config code/configs/exp_d_attn_unet.json
 python code/scripts/train_experiment.py --config code/configs/exp_e_resunet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_f_cril_resunet.json
 python code/scripts/train_experiment.py --config code/configs/exp_g_segresnet.json

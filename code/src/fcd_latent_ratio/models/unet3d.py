@@ -403,6 +403,36 @@ class CRILSegResNet3D(nn.Module):
         return self.segresnet(latent)
 
 
+class AttentionUNet3D(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 2,
+        out_channels: int = 1,
+        encoder_channels: tuple[int, int, int, int, int] | list[int] = (32, 64, 128, 256, 512),
+        attention_embed_dim: int = 16,
+        attention_num_heads: int = 4,
+        attention_pooled_size: tuple[int, int, int] | list[int] = (6, 6, 6),
+        attention_mlp_ratio: float = 2.0,
+    ) -> None:
+        super().__init__()
+        self.attention = LightweightBottleneckAttention3D(
+            in_channels=in_channels,
+            embed_dim=attention_embed_dim,
+            num_heads=attention_num_heads,
+            pooled_size=attention_pooled_size,
+            mlp_ratio=attention_mlp_ratio,
+        )
+        self.unet = UNet3D(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            encoder_channels=encoder_channels,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        attended = self.attention(x)
+        return self.unet(attended)
+
+
 class CRILAttnUNet3D(nn.Module):
     def __init__(
         self,

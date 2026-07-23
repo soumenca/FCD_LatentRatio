@@ -138,6 +138,7 @@ def _build_run_name(config: dict) -> str:
         "exp_a_unet_e5": "exp_a",
         "exp_b_cril_unet": "exp_b",
         "exp_d_cril_attn_unet": "exp_d",
+        "exp_d_attn_unet": "exp_d",
         "exp_e_resunet_e5": "exp_e",
         "exp_f_cril_resunet": "exp_f",
         "exp_g_segresnet": "exp_g",
