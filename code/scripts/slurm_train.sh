@@ -45,7 +45,7 @@ Options:
   --exp {a|b|d|e|f|g|h} Shortcut for bundled configs:
                         a -> exp_a_unet_e5.json
                         b -> exp_b_cril_unet.json
-                        d -> exp_d_cril_attn_unet.json
+                        d -> exp_d_attn_unet.json
                         e -> exp_e_resunet_e5.json
                         f -> exp_f_cril_resunet.json
                         g -> exp_g_segresnet.json
@@ -77,7 +77,7 @@ while [[ $# -gt 0 ]]; do
       case "${2:-}" in
         a) CONFIG_PATH="$REPO_ROOT/code/configs/exp_a_unet_e5.json" ;;
         b) CONFIG_PATH="$REPO_ROOT/code/configs/exp_b_cril_unet.json" ;;
-        d) CONFIG_PATH="$REPO_ROOT/code/configs/exp_d_cril_attn_unet.json" ;;
+        d) CONFIG_PATH="$REPO_ROOT/code/configs/exp_d_attn_unet.json" ;;
         e) CONFIG_PATH="$REPO_ROOT/code/configs/exp_e_resunet_e5.json" ;;
         f) CONFIG_PATH="$REPO_ROOT/code/configs/exp_f_cril_resunet.json" ;;
         g) CONFIG_PATH="$REPO_ROOT/code/configs/exp_g_segresnet.json" ;;
