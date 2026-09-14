@@ -1,378 +1,177 @@
-# FCD Latent Ratio Experiment
+# CRIL-U-Net: MICAD 2026 Experiments
 
-This repository contains a minimal experiment scaffold for the 2-week ablation with 5-fold cross-validation:
+This repository contains the training and evaluation code for the three architectures reported in the MICAD 2026 paper:
 
-- `U-Net-E5`: plain 3D U-Net with `T1w + FLAIR`
-- `CRIL-U-Net`: 3D U-Net with a Compact Ratio-Interaction Learning module
-- `CRIL-Attn-U-Net`: CRIL with a lightweight pooled-attention block before the 3D U-Net
-- `ResU-Net-E5`: residual 3D U-Net with `T1w + FLAIR`
-- `CRIL-ResU-Net`: residual 3D U-Net driven by CRIL latent features
-- `SegResNet`: MONAI `SegResNet` baseline with `T1w + FLAIR`
-- `CRIL-SegResNet`: MONAI `SegResNet` driven by CRIL latent features
+> CRIL-U-Net: Compact Ratio-Interaction Learning for Focal Cortical Dysplasia Segmentation from T1w and FLAIR MRI
 
-## Core idea
+The comparison uses the same five-level 3D U-Net backbone for all models:
 
-The proposed model does not emit handcrafted ratio images. Instead, it learns a compact latent MRI representation from conventional `T1w` and `FLAIR` inputs before segmentation:
+- `exp_a`: 3D U-Net with concatenated T1w and FLAIR input
+- `exp_b`: CRIL-U-Net with a learned four-channel CRIL representation
+- `exp_d`: Self-Attention U-Net with input-level pooled attention
 
-```text
-T1w + FLAIR
-    -> Compact Ratio-Interaction Learning Module
-    -> lightweight bottleneck attention block
-    -> compressed latent representation
-    -> 3D U-Net
-    -> FCD mask
-```
+Later residual U-Net, SegResNet, CRIL-plus-attention, fixed-ratio-input, and legacy analysis experiments are intentionally excluded.
 
-## Expected dataset layout
+## Architectures
 
-The training code now supports two dataset formats.
+All models use encoder widths `[32, 64, 128, 256, 512]`, two convolutions per stage, instance normalisation, LeakyReLU, max-pooling, transposed-convolution upsampling, and skip concatenation.
 
-### nnU-Net v2 format
+| Experiment | Model | Input to U-Net | Trainable parameters |
+|---|---|---:|---:|
+| `exp_a` | 3D U-Net | 2 channels | 22,573,249 |
+| `exp_d` | Self-Attention U-Net | 2 attended channels | 22,575,537 |
+| `exp_b` | CRIL-U-Net | 4 latent channels | 22,577,569 |
 
-This is the recommended path if your data is already prepared for nnU-Net:
+### CRIL-U-Net
+
+CRIL receives independently normalised T1w and FLAIR volumes and learns three feature streams:
+
+- local spatial features using a `3x3x3` convolution
+- voxel-wise cross-modal mixing using a `1x1x1` convolution
+- bidirectional ratio interactions using `T1w / FLAIR` and `FLAIR / T1w`
+
+Denominators with absolute value below `1e-3` are replaced by `1e-3`, and ratios are clipped to `[-10, 10]`. Each stream produces 16 channels. Two `1x1x1` fusion convolutions compress the concatenated features from 48 to 16 and then to four latent channels.
+
+### Self-Attention U-Net
+
+The attention comparator projects the two-channel input to 16 dimensions, adaptively pools it to a `6x6x6` grid, applies four-head self-attention and a feed-forward layer, trilinearly upsamples the result, projects it back to two channels, and adds it residually to the original input.
+
+## Data Layout
+
+The experiment configs use nnU-Net v2-style input:
 
 ```text
 data/
   dataset.json
   imagesTr/
-    sub-001_0000.nii.gz   # T1w
-    sub-001_0001.nii.gz   # FLAIR
-    sub-002_0000.nii.gz
-    sub-002_0001.nii.gz
+    FCD_001_0000.nii.gz   # T1w
+    FCD_001_0001.nii.gz   # FLAIR
+    CON_001_0000.nii.gz
+    CON_001_0001.nii.gz
   labelsTr/
-    sub-001.nii.gz
-    sub-002.nii.gz
+    FCD_001.nii.gz
+    CON_001.nii.gz        # empty control mask
 ```
 
-Default channel mapping is `_0000 -> T1w` and `_0001 -> FLAIR`. If `dataset.json` contains `channel_names`, the loader will use that mapping automatically when possible.
+The default channel mapping is `_0000` for T1w and `_0001` for FLAIR. When present, `dataset.json` channel names are used to resolve the mapping. Subject IDs beginning with `FCD_` are treated as patients and IDs beginning with `CON_` as controls.
 
-### Subject-folder format
-
-The original subject-space layout is still supported:
+The original subject-folder loader is also retained for datasets organised as:
 
 ```text
 data/
-  subjects/
-    FCDII/
-      sub-001/
-        T1w.nii.gz
-        FLAIR.nii.gz
-        label.nii.gz
-        brain_mask.nii.gz          # optional
-        subject_manifest.json      # optional
-  controls/
-    FCDII/
-      sub-101/
-        T1w.nii.gz
-        FLAIR.nii.gz
-        brain_mask.nii.gz          # optional
-        subject_manifest.json      # optional
+  subjects/<dataset>/<subject>/
+    T1w.nii.gz
+    FLAIR.nii.gz
+    label.nii.gz
+    brain_mask.nii.gz
+  controls/<dataset>/<subject>/
+    T1w.nii.gz
+    FLAIR.nii.gz
+    brain_mask.nii.gz
 ```
 
-If `subject_manifest.json` is missing, the loader infers metadata from the folder names.
+For each modality, the loader calculates the mean and standard deviation inside `brain_mask.nii.gz`, applies z-score normalisation, and sets voxels outside the mask to zero. If no brain mask is available, the loader uses the full volume.
 
-## Experiment presets
+## Experiment Settings
 
-- [code/configs/exp_a_unet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_a_unet_e5.json): baseline 2-channel 3D U-Net
-- [code/configs/exp_b_cril_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_b_cril_unet.json): proposed CRIL-U-Net
-- [code/configs/exp_d_attn_unet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_d_attn_unet.json): attention U-Net with bottleneck attention
-- [code/configs/exp_e_resunet_e5.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_e_resunet_e5.json): residual 2-channel 3D U-Net baseline
-- [code/configs/exp_f_cril_resunet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_f_cril_resunet.json): CRIL with a residual 3D U-Net backbone
-- [code/configs/exp_g_segresnet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_g_segresnet.json): MONAI SegResNet 2-channel baseline
-- [code/configs/exp_h_cril_segresnet.json](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/configs/exp_h_cril_segresnet.json): CRIL with a MONAI SegResNet backbone
+The bundled configs reproduce the common settings:
 
-## Experiment comparison
+- five-fold stratified cross-validation with shared partitions and seed 42
+- 15% of each development set reserved for validation
+- `96x96x96` patches and batch size 4
+- 500 epochs
+- learning rate `1e-4` and weight decay `1e-5`
+- mixed-precision training when CUDA is available
+- lesion-centred sampling probability 0.7 for subjects with non-empty masks
+- no data augmentation
 
-| Exp | Model Name | Backbone | CRIL | Attention | Notes |
-|---|---|---|---|---|---|
-| `exp_a` | U-Net-E5 | Plain 5-stage 3D U-Net | No | No | simplest baseline |
-| `exp_b` | CRIL-U-Net | Plain 5-stage 3D U-Net | Yes | No | tests CRIL on vanilla U-Net |
-| `exp_d` | CRIL-Attn-U-Net | Plain 5-stage 3D U-Net | Yes | Yes | CRIL plus bottleneck attention |
-| `exp_e` | ResU-Net-E5 | Residual 5-stage 3D U-Net | No | No | same U-Net layout idea, but residual blocks |
-| `exp_f` | CRIL-ResU-Net | Residual 5-stage 3D U-Net | Yes | No | tests CRIL on residual U-Net |
-| `exp_g` | SegResNet | MONAI SegResNet | No | No | different family from U-Net |
-| `exp_h` | CRIL-SegResNet | MONAI SegResNet | Yes | No | tests CRIL on SegResNet |
+The implementation uses `torch.optim.AdamW`. The accepted paper refers to this as Adam while also reporting weight decay; the optimizer implementation is left unchanged to preserve the experiment code path.
 
-## Quick start
+## Losses
 
-Bootstrap the environment with:
+The paper evaluates every architecture with two objectives:
+
+- `dice_bce`: equally weighted soft Dice and binary cross-entropy
+- `focal_tversky_focal`: equal-weight Focal Tversky and sigmoid focal components
+
+The FTF defaults are `alpha=0.7`, `beta=0.3`, Tversky `gamma=1.33`, focal `alpha=0.25`, focal `gamma=2.0`, and smoothing `1e-5`.
+
+## Setup
+
+Create the environment and install dependencies:
 
 ```bash
 bash code/scripts/setup_env.sh
+source .venv/bin/activate
 ```
 
-Then run:
+## Training
+
+Run one architecture with the default Dice-BCE loss:
 
 ```bash
 python code/scripts/train_experiment.py --config code/configs/exp_a_unet_e5.json
 python code/scripts/train_experiment.py --config code/configs/exp_b_cril_unet.json
 python code/scripts/train_experiment.py --config code/configs/exp_d_attn_unet.json
-python code/scripts/train_experiment.py --config code/configs/exp_e_resunet_e5.json
-python code/scripts/train_experiment.py --config code/configs/exp_f_cril_resunet.json
-python code/scripts/train_experiment.py --config code/configs/exp_g_segresnet.json
-python code/scripts/train_experiment.py --config code/configs/exp_h_cril_segresnet.json
 ```
 
-You can override dataset and output locations at launch time:
-
-```bash
-python code/scripts/train_experiment.py \
-  --config code/configs/exp_a_unet_e5.json \
-  --data-root /path/to/nnunet_dataset \
-  --output-root /path/to/outputs
-```
-
-You can also override epochs from the command line:
-
-```bash
-python code/scripts/train_experiment.py \
-  --config code/configs/exp_a_unet_e5.json \
-  --epochs 120
-```
-
-The default loss remains `dice_bce`, but you can switch losses at run time:
+Run the reported FTF condition by overriding the loss:
 
 ```bash
 python code/scripts/train_experiment.py \
   --config code/configs/exp_b_cril_unet.json \
-  --loss-name focal_tversky_focal \
-  --loss-alpha 0.7 \
-  --loss-beta 0.3 \
-  --loss-gamma 1.33
+  --loss-name focal_tversky_focal
 ```
 
-Available loss names:
-
-- `dice_bce`: current default, with optional `--loss-bce-weight`
-- `focal_tversky`: pure Focal Tversky loss
-- `focal_tversky_focal`: hybrid focal voxel loss + Focal Tversky loss
-
-All outputs are written under a compact run directory such as `data/outputs/exp_b_cril_unet__ftf__e500/`.
-
-For nnU-Net v2 datasets, set `data_root` to the dataset root containing `imagesTr/`, `labelsTr/`, and optionally `dataset.json`. The included configs already default to:
-
-```json
-{
-  "dataset_format": "nnunetv2",
-  "num_folds": 5,
-  "epochs": 500,
-  "t1_channel_index": 0,
-  "flair_channel_index": 1
-}
-```
-
-If you want to use the older subject-folder layout instead, change `dataset_format` to `"subject_dirs"`.
-
-Each run now trains one model per fold under `data/outputs/<run_name>/fold_01/` through `fold_05/`. For example, a 25-epoch run of `exp_a_unet_e5` with the default loss is written to `data/outputs/exp_a_db_e25/`. If you launch individual folds from SLURM, they still write back into that same shared experiment folder and use `fold_01`, `fold_02`, and so on as subdirectories. Every fold writes its own `best_model.pt`, `history.json`, `split.json`, `summary.json`, and `training_curve.png`, plus predicted masks for that fold's held-out test subjects under `fold_xx/validation/` as `.nii.gz` files. After all 5 folds finish, those `validation/` folders together give you predictions for the full dataset, while the top-level `data/outputs/<run_name>/summary.json` stores the aggregated cross-validation metrics.
-
-All bundled experiments now use the same shared 5-fold split file by default:
+Useful runtime overrides include:
 
 ```bash
-data/splits/shared_5fold_split.json
+python code/scripts/train_experiment.py \
+  --config code/configs/exp_a_unet_e5.json \
+  --data-root /path/to/dataset \
+  --output-root /path/to/outputs \
+  --fold-index 0
 ```
 
-The first experiment run will create that file if it does not exist. Later runs of `exp_a`, `exp_b`, `exp_d`, `exp_e`, `exp_f`, `exp_g`, and `exp_h` will reuse it so all experiments evaluate on the exact same folds.
+The shared split is stored at `data/splits/shared_5fold_split.json`. Each fold writes its checkpoint, history, split, summary, training curve, and held-out prediction masks beneath:
 
-Reported segmentation metrics now include Dice, HD95, IoU, precision, recall, sensitivity, and specificity.
-
-Project layout now keeps executable code under `code/` and reserves `data/` for datasets.
-
-## HPC Usage
-
-Use [code/scripts/slurm_train.sh](/Users/soumen/wkdir/CodexApp/FCD_LatentRatio/code/scripts/slurm_train.sh) on M3.
-
-### 1. Clone on M3
-
-Clone the repo:
-
-```bash
-cd /path/where/you/want/the/repo
-git clone https://github.com/soumenca/FCD_LatentRatio.git
-cd FCD_LatentRatio
+```text
+data/outputs/<experiment>_<loss>_e500/fold_XX/
 ```
 
-If the repo is already there and you just want the latest updates:
+## SLURM
 
-```bash
-cd /path/to/FCD_LatentRatio
-git pull
-```
-
-If M3 requires SSH instead of HTTPS:
-
-```bash
-git clone git@github.com:soumenca/FCD_LatentRatio.git
-```
-
-### 2. Setup once
-
-```bash
-cd /path/to/FCD_LatentRatio
-module load python/3.11
-module load cuda/12.1
-bash code/scripts/setup_env.sh
-```
-
-### 3. Submit a job
-
-`exp_a` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp a \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_b` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp b \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_d` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp d \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_e` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp e \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_f` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp f \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_g` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp g \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-`exp_h` with `T1w + FLAIR`:
-
-```bash
-cd /path/to/FCD_LatentRatio
-sbatch code/scripts/slurm_train.sh \
-  --modules "python/3.11 cuda/12.1" \
-  --exp h \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs
-```
-
-You can also pass other parameters from the `sbatch` command line:
-
-```bash
-sbatch code/scripts/slurm_train.sh \
-  --exp a \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs \
-  --epochs 120
-```
-
-You can switch the loss during submission as well:
+The included script launches one cross-validation fold per array task:
 
 ```bash
 sbatch code/scripts/slurm_train.sh \
   --exp b \
-  --data-root /path/to/Dataset1 \
-  --output-root /path/to/scratch/FCD_LatentRatio_outputs \
-  --loss-name focal_tversky_focal \
-  --loss-alpha 0.7 \
-  --loss-beta 0.3 \
-  --loss-gamma 1.33
+  --data-root /path/to/dataset \
+  --output-root /path/to/outputs \
+  --loss-name focal_tversky_focal
 ```
 
-### 4. Check logs
+Supported experiment shortcuts are `a`, `b`, and `d`.
 
-```bash
-tail -f logs/UNet_CV_fold0_<jobid>.out
-```
+## Inference and Analysis
 
-### 5. Find outputs
+Held-out predictions use sliding-window inference with 50% overlap. Overlapping logits are averaged, sigmoid probabilities are calculated, and masks are thresholded at `0.5`. No connected-component or other post-processing is applied.
 
-```bash
-data/outputs/<run_name>/
-```
-
-If you use `OUTPUT_ROOT_OVERRIDE`, outputs go there instead.
-
-## Analyze Predicted Masks
-
-After a run finishes, you can recompute segmentation metrics for every saved predicted mask:
+Recalculate the paper metrics from exported predictions with:
 
 ```bash
 python code/scripts/analyze_predictions.py \
-  --run-dir data/outputs/exp_a_db_e500
+  --run-dir data/outputs/exp_b_ftf_e500
 ```
 
-This writes:
+The analyzer reports Dice, sensitivity, precision, lesion misses, and non-empty control predictions. Metrics are written separately for all subjects, FCD subjects, and healthy controls, with the fold-wise summary calculated from FCD subjects.
 
-- `prediction_analysis/segmentation_metrics_all_subjects.csv`
-- `prediction_analysis/segmentation_metrics_fcd_subjects.csv`
-- `prediction_analysis/segmentation_metrics_hc_subjects.csv`
-- `prediction_analysis/segmentation_metrics_foldwise_summary.csv` (FCD subjects only)
-- `prediction_analysis/segmentation_metrics_error_counts.csv`
+## Repository Layout
 
-You can also point it at a different dataset root if needed:
-
-```bash
-python code/scripts/analyze_predictions.py \
-  --run-dir /path/to/run_dir \
-  --data-root /path/to/dataset
+```text
+code/
+  configs/              # exp_a, exp_b, and exp_d
+  scripts/              # setup, training, SLURM, and analysis entry points
+  src/fcd_latent_ratio/ # data, losses, metrics, models, and training
+data/                   # local datasets, splits, outputs, and logs (ignored)
 ```
-
-If you want the previous lightweight analyzer behavior, it is still available as:
-
-```bash
-python code/scripts/analyze_predictions_legacy.py \
-  --run-dir /path/to/run_dir
-```
-
-### Notes
-
-- The SLURM script uses your M3 settings: `gpu`, `1 GPU`, `8 CPUs`, `96G`, `2 days`, array `0-4`
-- Each array task runs one CV fold
-- Supported SLURM script flags: `--exp`, `--config`, `--data-root`, `--output-root`, `--venv-dir`, `--modules`, `--epochs`, `--fold-index`
-- Keep `patch_size` reasonably large; very small patches like `16x16x16` can fail
-
-## Notes
-
-- The CRIL module uses three branches:
-  - local intensity features via `3x3x3` convolution
-  - cross-modal interaction via `1x1x1` convolution
-  - bidirectional ratio interaction from internal `T1w / FLAIR` and `FLAIR / T1w`
-- The bottleneck compresses features to `4` latent channels by default.
-- The U-Net backbone is shared across all three experiments for a clean ablation.

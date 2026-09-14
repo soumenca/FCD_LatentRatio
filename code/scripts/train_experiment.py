@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fold-index", type=int, help="Optional zero-based CV fold index to run by itself.")
     parser.add_argument(
         "--loss-name",
-        choices=["dice_bce", "focal_tversky", "focal_tversky_focal"],
+        choices=["dice_bce", "focal_tversky_focal"],
         help="Optional loss override. Default stays whatever the config specifies.",
     )
     parser.add_argument("--loss-bce-weight", type=float, help="Override Dice+BCE BCE weight.")

@@ -32,7 +32,6 @@ python -m pip install "${PIP_ARGS[@]}" -r "$REPO_ROOT/requirements.txt"
 
 python - <<'PY'
 import matplotlib  # noqa: F401
-import monai  # noqa: F401
 import nibabel  # noqa: F401
 import numpy  # noqa: F401
 import torch  # noqa: F401

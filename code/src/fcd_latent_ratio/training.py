@@ -26,12 +26,8 @@ from .data import (
 from .losses import build_loss
 from .metrics import (
     dice_score_from_logits,
-    hd95_score_from_logits,
-    iou_score_from_logits,
     precision_score_from_logits,
-    recall_score_from_logits,
     sensitivity_score_from_logits,
-    specificity_score_from_logits,
 )
 from .models import build_model
 
@@ -137,19 +133,11 @@ def _build_run_name(config: dict) -> str:
     experiment_alias_map = {
         "exp_a_unet_e5": "exp_a",
         "exp_b_cril_unet": "exp_b",
-        "exp_d_cril_attn_unet": "exp_d",
         "exp_d_attn_unet": "exp_d",
-        "exp_e_resunet_e5": "exp_e",
-        "exp_f_cril_resunet": "exp_f",
-        "exp_g_segresnet": "exp_g",
-        "exp_h_cril_segresnet": "exp_h",
     }
     loss_alias_map = {
         "dice_bce": "db",
-        "focal_tversky": "ft",
         "focal_tversky_focal": "ftf",
-        "ftl_focal": "ftf",
-        "focal_tversky_combo": "ftf",
     }
 
     experiment_name = experiment_alias_map.get(raw_experiment_name, raw_experiment_name)
@@ -243,12 +231,8 @@ def evaluate(
     model.eval()
     total_loss = 0.0
     total_dice = 0.0
-    total_hd95 = 0.0
-    total_iou = 0.0
     total_precision = 0.0
-    total_recall = 0.0
     total_sensitivity = 0.0
-    total_specificity = 0.0
     steps = 0
     for batch in loader:
         image = batch["image"].to(device=device, dtype=torch.float32, non_blocking=non_blocking)
@@ -267,23 +251,15 @@ def evaluate(
             raise RuntimeError("Non-finite loss encountered during evaluation.")
         total_loss += float(loss.item())
         total_dice += float(dice_score_from_logits(logits, label).item())
-        total_hd95 += float(hd95_score_from_logits(logits, label).item())
-        total_iou += float(iou_score_from_logits(logits, label).item())
         total_precision += float(precision_score_from_logits(logits, label).item())
-        total_recall += float(recall_score_from_logits(logits, label).item())
         total_sensitivity += float(sensitivity_score_from_logits(logits, label).item())
-        total_specificity += float(specificity_score_from_logits(logits, label).item())
         steps += 1
     n = max(1, steps)
     return {
         "loss": total_loss / n,
         "dice": total_dice / n,
-        "hd95": total_hd95 / n,
-        "iou": total_iou / n,
         "precision": total_precision / n,
-        "recall": total_recall / n,
         "sensitivity": total_sensitivity / n,
-        "specificity": total_specificity / n,
     }
 
 
@@ -364,25 +340,13 @@ def _predict_subject_mask(
     arrays = load_subject_arrays(subject)
     t1 = zscore_inside_mask(arrays["t1"], arrays["brain_mask"])
     flair = zscore_inside_mask(arrays["flair"], arrays["brain_mask"])
-    t1_flair_ratio = arrays["t1_flair_ratio"]
-    flair_t1_ratio = arrays["flair_t1_ratio"]
 
     original_shape = t1.shape
     target_shape = tuple(max(size, patch) for size, patch in zip(original_shape, patch_size))
     t1 = pad_if_needed(t1, target_shape)
     flair = pad_if_needed(flair, target_shape)
-    if t1_flair_ratio is not None:
-        t1_flair_ratio = pad_if_needed(t1_flair_ratio.astype(np.float32), target_shape)
-    if flair_t1_ratio is not None:
-        flair_t1_ratio = pad_if_needed(flair_t1_ratio.astype(np.float32), target_shape)
 
-    image = build_input_channels(
-        t1,
-        flair,
-        input_mode=input_mode,
-        t1_flair_ratio=t1_flair_ratio,
-        flair_t1_ratio=flair_t1_ratio,
-    )
+    image = build_input_channels(t1, flair, input_mode=input_mode)
     image_tensor = torch.from_numpy(image[None, ...]).to(
         device=device,
         dtype=torch.float32,
@@ -665,16 +629,6 @@ def fit_experiment(config: dict, repo_root: Path) -> Path:
         dataset_format=dataset_format,
         t1_channel_index=int(config.get("t1_channel_index", 0)),
         flair_channel_index=int(config.get("flair_channel_index", 1)),
-        t1_flair_ratio_channel_index=(
-            int(config["t1_flair_ratio_channel_index"])
-            if config.get("t1_flair_ratio_channel_index") is not None
-            else None
-        ),
-        flair_t1_ratio_channel_index=(
-            int(config["flair_t1_ratio_channel_index"])
-            if config.get("flair_t1_ratio_channel_index") is not None
-            else None
-        ),
     )
     if not subjects:
         raise SystemExit(f"No subjects found under {data_root}")

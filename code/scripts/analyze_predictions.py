@@ -23,7 +23,7 @@ if str(SRC) not in sys.path:
 from fcd_latent_ratio.data import build_subject_index
 
 
-METRIC_NAMES = ("dice", "iou", "sensitivity", "precision")
+METRIC_NAMES = ("dice", "sensitivity", "precision")
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,7 +64,6 @@ def compute_case_metrics(pred_mask: np.ndarray, gt_mask: np.ndarray) -> dict[str
     gt_voxels = float(gt.sum())
 
     dice = safe_divide(2.0 * tp, 2.0 * tp + fp + fn)
-    iou = safe_divide(tp, tp + fp + fn)
     precision = safe_divide(tp, tp + fp, both_empty_value=1.0 if gt_voxels == 0 else 0.0)
     sensitivity = safe_divide(tp, tp + fn)
 
@@ -72,7 +71,6 @@ def compute_case_metrics(pred_mask: np.ndarray, gt_mask: np.ndarray) -> dict[str
         "pred_voxels": pred_voxels,
         "gt_voxels": gt_voxels,
         "dice": dice,
-        "iou": iou,
         "sensitivity": sensitivity,
         "precision": precision,
         "pred_nonempty": float(pred_voxels > 0),
@@ -145,16 +143,6 @@ def main() -> int:
         dataset_format=config.get("dataset_format", "subject_dirs"),
         t1_channel_index=int(config.get("t1_channel_index", 0)),
         flair_channel_index=int(config.get("flair_channel_index", 1)),
-        t1_flair_ratio_channel_index=(
-            int(config["t1_flair_ratio_channel_index"])
-            if config.get("t1_flair_ratio_channel_index") is not None
-            else None
-        ),
-        flair_t1_ratio_channel_index=(
-            int(config["flair_t1_ratio_channel_index"])
-            if config.get("flair_t1_ratio_channel_index") is not None
-            else None
-        ),
     )
     subject_map = {subject.subject_id: subject for subject in subjects}
     requested_subject_ids = set(args.subject_ids or [])
@@ -227,7 +215,7 @@ def main() -> int:
         if any(row["fold"] == fold_dir.name for row in fcd_rows)
     ]
     foldwise_rows.append(_metric_summary(fcd_rows, "overall"))
-    summary_fieldnames = ["split", "num_subjects", "dice_mean", "dice_std", "iou_mean", "iou_std", "sensitivity_mean", "sensitivity_std", "precision_mean", "precision_std"]
+    summary_fieldnames = ["split", "num_subjects", "dice_mean", "dice_std", "sensitivity_mean", "sensitivity_std", "precision_mean", "precision_std"]
     _write_csv(summary_csv, foldwise_rows, summary_fieldnames)
 
     count_rows = [_counts_summary([row for row in rows if row["fold"] == fold_dir.name], fold_dir.name) for fold_dir in fold_dirs if any(row["fold"] == fold_dir.name for row in rows)]

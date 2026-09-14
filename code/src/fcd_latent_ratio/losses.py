@@ -95,15 +95,7 @@ def build_loss(config: dict | None) -> nn.Module:
     if name == "dice_bce":
         return DiceBCELoss(bce_weight=float(config.get("bce_weight", 0.5)))
 
-    if name == "focal_tversky":
-        return FocalTverskyLoss(
-            alpha=float(config.get("alpha", 0.7)),
-            beta=float(config.get("beta", 0.3)),
-            gamma=float(config.get("gamma", 1.33)),
-            smooth=float(config.get("smooth", 1e-5)),
-        )
-
-    if name in {"focal_tversky_focal", "ftl_focal", "focal_tversky_combo"}:
+    if name == "focal_tversky_focal":
         return FocalTverskyFocalLoss(
             tversky_alpha=float(config.get("alpha", 0.7)),
             tversky_beta=float(config.get("beta", 0.3)),

@@ -1,6 +1,4 @@
 torch
 numpy
 nibabel
-scipy
 matplotlib
-monai

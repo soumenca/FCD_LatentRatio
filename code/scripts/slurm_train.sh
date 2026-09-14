@@ -42,14 +42,10 @@ Usage:
   sbatch code/scripts/slurm_train.sh [options]
 
 Options:
-  --exp {a|b|d|e|f|g|h} Shortcut for bundled configs:
+  --exp {a|b|d}         Shortcut for MICAD-26 configs:
                         a -> exp_a_unet_e5.json
                         b -> exp_b_cril_unet.json
                         d -> exp_d_attn_unet.json
-                        e -> exp_e_resunet_e5.json
-                        f -> exp_f_cril_resunet.json
-                        g -> exp_g_segresnet.json
-                        h -> exp_h_cril_segresnet.json
   --config PATH         Explicit config path
   --data-root PATH      Override dataset root
   --output-root PATH    Override output root
@@ -57,7 +53,7 @@ Options:
   --modules "A B C"     Modules to load before running
   --epochs N            Override epochs
   --fold-index N        Override fold index; defaults to SLURM_ARRAY_TASK_ID
-  --loss-name NAME      Override loss: dice_bce, focal_tversky, focal_tversky_focal
+  --loss-name NAME      Override loss: dice_bce, focal_tversky_focal
   --loss-bce-weight X   Override BCE weight for dice_bce
   --loss-alpha X        Override Tversky alpha
   --loss-beta X         Override Tversky beta
@@ -78,10 +74,6 @@ while [[ $# -gt 0 ]]; do
         a) CONFIG_PATH="$REPO_ROOT/code/configs/exp_a_unet_e5.json" ;;
         b) CONFIG_PATH="$REPO_ROOT/code/configs/exp_b_cril_unet.json" ;;
         d) CONFIG_PATH="$REPO_ROOT/code/configs/exp_d_attn_unet.json" ;;
-        e) CONFIG_PATH="$REPO_ROOT/code/configs/exp_e_resunet_e5.json" ;;
-        f) CONFIG_PATH="$REPO_ROOT/code/configs/exp_f_cril_resunet.json" ;;
-        g) CONFIG_PATH="$REPO_ROOT/code/configs/exp_g_segresnet.json" ;;
-        h) CONFIG_PATH="$REPO_ROOT/code/configs/exp_h_cril_segresnet.json" ;;
         *)
           echo "Unknown experiment for --exp: ${2:-<missing>}" >&2
           usage
